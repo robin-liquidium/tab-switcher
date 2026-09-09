@@ -43,14 +43,8 @@ versionLabel.textContent = "v" + currentVersion;
 // Load custom shortcut display from storage
 chrome.storage.local.get("shortcuts", function(data) {
   if (data.shortcuts) {
-    if (data.shortcuts.tabSwitch) {
-      var el = document.getElementById("tab-switch-keys");
-      if (el) el.innerHTML = '<span class="key">' + data.shortcuts.tabSwitch + '</span>';
-    }
-    if (data.shortcuts.copyUrl) {
-      var el = document.getElementById("copy-url-keys");
-      if (el) el.innerHTML = '<span class="key">' + data.shortcuts.copyUrl + '</span>';
-    }
+    document.getElementById("tab-switch-keys").textContent = data.shortcuts.tabSwitch || "Unassigned";
+    document.getElementById("copy-url-keys").textContent = data.shortcuts.copyUrl || "Unassigned";
   }
 });
 

@@ -24,8 +24,8 @@ var slowtimerValue = 1500;
 var fasttimerValue = 200;
 var timer;
 
-// Debug logging (enabled for troubleshooting)
-var loggingOn = true;
+// Enable debug logging when troubleshooting
+var loggingOn = false;
 
 // Native messaging for Ctrl+Tab interception
 var nativePort = null;
@@ -380,11 +380,9 @@ var initialize = function() {
 	if(!initialized) {
 		initialized = true;
 		chrome.windows.getAll({populate:true},function(windows){
-			windows.forEach(function(window){
-				window.tabs.forEach(function(tab){
-					mru.unshift(tab.id);
-				});
-			});
+			mru = windows.flatMap(window => window.tabs)
+				.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))
+				.map(tab => tab.id);
 			log("MRU after init: "+mru);
 		});
 	}
@@ -460,34 +458,6 @@ var captureCurrentTabThumbnail = function() {
 	});
 };
 
-// Get tab data for the visual switcher (includes thumbnails, titles, favicons)
-// Uses filteredMru when in a native switch session, otherwise uses full mru
-var getTabDataForSwitcher = async function() {
-	var tabData = [];
-	// Use filtered MRU during native switch, otherwise full MRU
-	var mruToUse = nativeSwitchOngoing ? filteredMru : mru;
-	
-	for (var i = 0; i < mruToUse.length; i++) {
-		var tabId = mruToUse[i];
-		try {
-			var tab = await chrome.tabs.get(tabId);
-			if (tab) {
-				tabData.push({
-					id: tab.id,
-					title: tab.title || 'Untitled',
-					favIconUrl: tab.favIconUrl || '',
-					thumbnail: tabThumbnails[tabId] || null,
-					url: tab.url || ''
-				});
-			}
-		} catch (e) {
-			log("Error getting tab data for tab " + tabId + ": " + e.message);
-		}
-	}
-	
-	return tabData;
-};
-
 // ============================================
 // Native Messaging for Ctrl+Tab interception
 // ============================================
@@ -547,8 +517,8 @@ var connectNativeHost = function() {
 				log("Native host is ready, registering browser: " + browserBundleId);
 				// Register this extension with its browser's bundle ID
 				sendToNativeHost({ action: "register", bundleId: browserBundleId, extensionVersion: EXTENSION_VERSION });
-			} else if (message.action === "registered") {
-				log("Successfully registered with native host for browser: " + message.bundleId);
+			} else if (message.action === "registered" || message.action === "shortcuts_changed") {
+				log("Received native shortcut configuration");
 				if (message.shortcuts) {
 					chrome.storage.local.set({ shortcuts: message.shortcuts });
 				}
@@ -562,13 +532,15 @@ var connectNativeHost = function() {
 					pingTimeout = null;
 				}
 			} else if (message.action === "cycle_next") {
-				handleNativeCycle(1, message.show_ui, message.current_window_only);
+				queueNativeSwitch(() => handleNativeCycle(1, message.current_window_only, message.max_tabs));
 			} else if (message.action === "cycle_prev") {
-				handleNativeCycle(-1, message.show_ui, message.current_window_only);
-			} else if (message.action === "request_show_ui") {
-				handleRequestShowUI(message.current_window_only);
+				queueNativeSwitch(() => handleNativeCycle(-1, message.current_window_only, message.max_tabs));
+			} else if (message.action === "select_tab") {
+				queueNativeSwitch(() => handleNativeSelection(message.tabId));
+			} else if (message.action === "cancel_switch") {
+				queueNativeSwitch(handleNativeCancelSwitch);
 			} else if (message.action === "end_switch") {
-				handleNativeEndSwitch();
+				queueNativeSwitch(handleNativeEndSwitch);
 			} else if (message.action === "copy_url") {
 				handleCopyUrl();
 			} else if (message.action === "error_no_accessibility") {
@@ -610,42 +582,21 @@ var sendToNativeHost = function(message) {
 	}
 };
 
-// Track if UI has been shown during current switch
-var uiShownDuringSwitch = false;
+// Keep key presses, hover selections, and release ordered while browser queries run.
+var nativeSwitchQueue = Promise.resolve();
+function queueNativeSwitch(action) {
+	nativeSwitchQueue = nativeSwitchQueue.then(action).catch(function(error) {
+		sendToNativeHost({ action: "hide_switcher" });
+		nativeSwitchOngoing = false;
+		filteredMru = [];
+		log("Native switch failed: " + error.message);
+	});
+	return nativeSwitchQueue;
+}
 
-// Window-filtered MRU list (only tabs from current window)
 var filteredMru = [];
-var currentWindowOnly = false;
-
-// Get filtered MRU based on current window setting
-var getFilteredMru = async function() {
-	if (!currentWindowOnly) {
-		return mru;
-	}
-	
-	// Get the current window
-	try {
-		var currentWindow = await chrome.windows.getCurrent();
-		var currentWindowId = currentWindow.id;
-		
-		// Filter MRU to only include tabs from current window
-		var filtered = [];
-		for (var i = 0; i < mru.length; i++) {
-			try {
-				var tab = await chrome.tabs.get(mru[i]);
-				if (tab && tab.windowId === currentWindowId) {
-					filtered.push(mru[i]);
-				}
-			} catch (e) {
-				// Tab may have been closed
-			}
-		}
-		return filtered.length > 0 ? filtered : mru; // Fallback to all tabs if window has only 1 tab
-	} catch (e) {
-		log("Error filtering MRU by window: " + e.message);
-		return mru;
-	}
-};
+var nativeSwitchWindowId = null;
+var nativeSwitchFocusVersion = 0;
 
 // Check if any window from this profile is currently focused
 // This is critical for multi-profile support - only the focused profile should respond
@@ -671,139 +622,76 @@ var isThisProfileFocused = async function() {
 	}
 };
 
-// Handle cycle in either direction
-// direction: 1 for next, -1 for prev
-// showUI: whether to show the visual switcher
-var handleNativeCycle = async function(direction, showUI, windowOnly) {
-	log("TabSwitch::NATIVE_CYCLE direction=" + direction + " showUI=" + showUI + " currentWindowOnly=" + windowOnly);
-	
-	// CRITICAL: Check if this profile's window is focused before responding
-	// This prevents multiple profiles from all responding to the same Ctrl+Tab
-	// Check on EVERY command, not just when starting
-	var isFocused = await isThisProfileFocused();
-	if (!isFocused) {
-		log("TabSwitch::Ignoring cycle - this profile is not focused");
-		// If we were in a switch but lost focus, end it
-		if (nativeSwitchOngoing) {
-			log("TabSwitch::Lost focus mid-switch, ending");
-			nativeSwitchOngoing = false;
-			uiShownDuringSwitch = false;
-			filteredMru = [];
-			currentWindowOnly = false;
-		}
-		return;
-	}
-	
+// Query metadata once at the start; subsequent cycling only changes the selection.
+var handleNativeCycle = async function(direction, windowOnly, maxTabs = 6) {
 	if (!nativeSwitchOngoing) {
-		// Start a new native switch
+		var focusVersion = nativeSwitchFocusVersion;
+		var windows = await chrome.windows.getAll({populate: true, windowTypes: ['normal']});
+		if (focusVersion !== nativeSwitchFocusVersion) return;
+		var focusedWindow = windows.find(win => win.focused);
+		if (!focusedWindow) return;
+
+		var tabs = (windowOnly === false ? windows : [focusedWindow]).flatMap(win => win.tabs);
+		var tabsById = new Map(tabs.map(tab => [tab.id, tab]));
+		var activeTab = focusedWindow.tabs.find(tab => tab.active);
+		// Include newly created tabs even if their MRU event has not arrived yet.
+		var orderedIds = [...new Set([activeTab?.id, ...mru, ...tabs.map(tab => tab.id)])];
+		filteredMru = orderedIds.filter(id => tabsById.has(id)).slice(0, Number.isInteger(maxTabs) ? Math.min(10, Math.max(2, maxTabs)) : 6);
+		if (!filteredMru.length) return;
+
 		nativeSwitchOngoing = true;
-		intSwitchCount = 0;
-		uiShownDuringSwitch = false;
-		currentWindowOnly = windowOnly !== false; // Default to true (current window only)
-		filteredMru = await getFilteredMru();
-		log("TabSwitch::Using " + (currentWindowOnly ? "current window" : "all windows") + ", filteredMru length: " + filteredMru.length);
-	}
-	
-	if (filteredMru.length === 0) {
-		log("TabSwitch::No tabs in filtered MRU");
-		return;
-	}
-	
-	// Move selection - but DON'T switch yet
-	if (direction > 0) {
-		intSwitchCount = (intSwitchCount + 1) % filteredMru.length;
-	} else {
-		if (intSwitchCount == 0) {
-			intSwitchCount = filteredMru.length - 1;
-		} else {
-			intSwitchCount = intSwitchCount - 1;
-		}
-	}
-	lastIntSwitchIndex = intSwitchCount;
-	
-	// Show UI if requested and not already shown
-	if (showUI && !uiShownDuringSwitch) {
-		uiShownDuringSwitch = true;
-		var tabData = await getTabDataForSwitcher();
+		nativeSwitchWindowId = focusedWindow.id;
+		intSwitchCount = (direction + filteredMru.length) % filteredMru.length;
+		lastIntSwitchIndex = intSwitchCount;
 		sendToNativeHost({
 			action: "show_switcher",
-			tabs: tabData,
+			tabs: filteredMru.map(id => {
+				var tab = tabsById.get(id);
+				return { id, title: tab.title || 'Untitled', favIconUrl: tab.favIconUrl || '',
+					thumbnail: tabThumbnails[id] || null, url: tab.url || '' };
+			}),
 			selectedIndex: intSwitchCount
 		});
-	} else if (uiShownDuringSwitch) {
-		// UI already shown - just update selection
-		sendToNativeHost({
-			action: "update_selection",
-			selectedIndex: intSwitchCount
-		});
+		return;
 	}
-	// If showUI is false and UI hasn't been shown, do nothing visual
+
+	intSwitchCount = (intSwitchCount + direction + filteredMru.length) % filteredMru.length;
+	lastIntSwitchIndex = intSwitchCount;
+	sendToNativeHost({ action: "update_selection", selectedIndex: intSwitchCount });
 };
 
-// Handle request to show UI (from delay timer)
-// windowOnly parameter is passed for consistency but filteredMru should already be set
-var handleRequestShowUI = async function(windowOnly) {
-	log("TabSwitch::REQUEST_SHOW_UI windowOnly=" + windowOnly);
-	
-	// Double-check we're still the focused profile before showing UI
-	var isFocused = await isThisProfileFocused();
-	if (!isFocused) {
-		log("TabSwitch::Ignoring show UI request - this profile is not focused");
-		return;
-	}
-	
-	if (nativeSwitchOngoing && !uiShownDuringSwitch) {
-		uiShownDuringSwitch = true;
-		var tabData = await getTabDataForSwitcher();
-		sendToNativeHost({
-			action: "show_switcher",
-			tabs: tabData,
-			selectedIndex: intSwitchCount
-		});
-	}
+var handleNativeSelection = function(tabId) {
+	if (!nativeSwitchOngoing) return;
+	var index = filteredMru.indexOf(tabId);
+	if (index === -1) return;
+	intSwitchCount = lastIntSwitchIndex = index;
+	sendToNativeHost({ action: "update_selection", selectedIndex: index });
+};
+
+var handleNativeCancelSwitch = function() {
+	if (!nativeSwitchOngoing) return;
+	sendToNativeHost({ action: "hide_switcher" });
+	nativeSwitchOngoing = false;
+	filteredMru = [];
+	nativeSwitchWindowId = null;
 };
 
 var handleNativeEndSwitch = async function() {
-	log("TabSwitch::NATIVE_END_SWITCH, switching to index: " + lastIntSwitchIndex);
-	
-	// Only handle end switch if we were the one doing the switch
-	// Check if this profile is focused OR if we had started a switch
-	if (nativeSwitchOngoing) {
-		// Tell native host to hide the switcher (if it was shown)
-		if (uiShownDuringSwitch) {
-			sendToNativeHost({
-				action: "hide_switcher"
-			});
-		}
-		uiShownDuringSwitch = false;
-		
-		// Double-check we're still the focused profile before activating tabs
-		var isFocused = await isThisProfileFocused();
-		if (!isFocused) {
-			log("TabSwitch::Ignoring end switch - this profile is no longer focused");
-			nativeSwitchOngoing = false;
-			filteredMru = [];
-			currentWindowOnly = false;
-			return;
-		}
-		
-		// NOW actually switch to the selected tab (use filteredMru which was set during this switch)
-		var tabIdToActivate = filteredMru[lastIntSwitchIndex];
-		if (tabIdToActivate) {
-			chrome.tabs.get(tabIdToActivate, function(tab) {
-				if (tab) {
-					chrome.windows.update(tab.windowId, {"focused": true});
-					chrome.tabs.update(tabIdToActivate, {active: true, highlighted: true});
-				}
-			});
-		}
-		
-		// End the switch and update MRU
-		endSwitch();
-		
-		// Reset filtered state
-		filteredMru = [];
-		currentWindowOnly = false;
+	if (!nativeSwitchOngoing) return;
+	var tabId = filteredMru[lastIntSwitchIndex];
+	sendToNativeHost({ action: "hide_switcher" });
+	nativeSwitchOngoing = false;
+	filteredMru = [];
+	if (!await isThisProfileFocused()) return;
+
+	// The selected tab may have closed while the switcher was open.
+	try {
+		var tab = await chrome.tabs.get(tabId);
+		await chrome.windows.update(tab.windowId, {focused: true});
+		await chrome.tabs.update(tabId, {active: true, highlighted: true});
+		putExistingTabToTop(tabId);
+	} catch (error) {
+		log("Selected tab is no longer available: " + error.message);
 	}
 };
 
@@ -845,6 +733,13 @@ connectNativeHost();
 // Reconnect native host when this profile's window gains focus
 // This fixes the issue where the service worker goes dormant when the profile is in the background
 chrome.windows.onFocusChanged.addListener(function(windowId) {
+	nativeSwitchFocusVersion++;
+	if (nativeSwitchOngoing && windowId !== nativeSwitchWindowId) {
+		sendToNativeHost({ action: "hide_switcher" });
+		nativeSwitchOngoing = false;
+		filteredMru = [];
+	}
+
 	if (windowId !== chrome.windows.WINDOW_ID_NONE) {
 		log("Window focus changed to: " + windowId);
 		// Check if the native host connection is still alive

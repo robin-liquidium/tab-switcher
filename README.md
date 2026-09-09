@@ -8,8 +8,8 @@
 
 - **Visual tab previews** — See thumbnails, favicons, and titles as you cycle through tabs
 - **Most recently used order** — Tabs ordered by recency, not position. One Ctrl+Tab instantly jumps to your last tab
-- **Copy URL shortcut** — Press Cmd+Shift+C to copy the current tab's URL to your clipboard with a confirmation toast
-- **Customizable shortcuts** — Remap both the tab switcher and copy URL shortcuts to any key combination
+- **Optional shortcuts** — Remap or disable the tab-switch and copy-URL shortcuts
+- **Adjustable preview count** — Choose 2–10 recent tabs (default: 6), with wraparound cycling
 - **Native performance** — A lightweight macOS companion app intercepts shortcuts at the system level
 - **Multi-browser support** — Chrome, Brave, Edge, Arc, Vivaldi, Opera, and any Chromium-based browser
 - **Auto-updates** — The native app updates itself automatically via Sparkle
@@ -18,7 +18,11 @@
 
 Hold **Ctrl** and press **Tab** to bring up the visual switcher. Keep holding Ctrl and press Tab repeatedly to cycle through your tabs. Release Ctrl to switch to the selected tab.
 
-Press **Cmd+Shift+C** to instantly copy the active tab's URL to your clipboard.
+The switcher appears immediately. Hover a preview to select it, or press **Escape** to cancel without changing tabs. Cycling wraps in either direction.
+
+Choose the maximum number of recent tabs in the app (2–10, default: 6). Changes apply to the next switch.
+
+Copy URL is unassigned by default. Click either shortcut field to record a shortcut, press Escape to cancel recording, or click × to clear it. Clearing the tab-switch shortcut restores the browser's own key handling. Existing saved shortcuts are preserved.
 
 Works exactly like macOS app switching (Cmd+Tab), but for your browser tabs.
 
@@ -57,10 +61,13 @@ If not prompted automatically:
 |----------|--------|
 | **Ctrl+Tab** | Open switcher, cycle forward |
 | **Ctrl+Shift+Tab** | Cycle backward |
-| **Cmd+Shift+C** | Copy current tab URL |
+| **Escape** | Cancel an open switcher or shortcut recording |
+| **Copy URL** (unassigned by default) | Assign a shortcut in the app to copy the current URL |
 | **Alt+W** | Quick switch to last tab (no UI) |
 
-All shortcuts can be customized in the app's setup window.
+The tab-switch and copy-URL shortcuts can be customized in the app's setup window.
+
+Hover selection, cancellation, and the preview-count setting require both the updated app and extension. Reload an unpacked extension after changing its files; restarting the companion app alone does not load new extension code.
 
 ## Requirements
 
@@ -95,6 +102,15 @@ The app bundle will be at `dist/Tab Switcher.app`. Code signing and notarization
 ```bash
 ./build.sh --sign              # build + code sign
 ./build.sh --sign --notarize   # build + sign + notarize
+```
+
+## Tests
+
+Run the extension behavior tests with Node.js and the native settings tests with Python 3 and the macOS Swift toolchain:
+
+```bash
+node --test tests/native-switch.test.cjs
+python3 tests/native-settings.test.py
 ```
 
 ## Project Structure

@@ -103,32 +103,37 @@ struct ShortcutConfig: Codable, Equatable {
 }
 
 struct ShortcutsConfiguration: Codable {
-    var tabSwitch: ShortcutConfig
-    var copyUrl: ShortcutConfig
+    var tabSwitch: ShortcutConfig?
+    var copyUrl: ShortcutConfig?
+    var maxRecentTabs: Int = 6
 
     static let defaults = ShortcutsConfiguration(
         tabSwitch: ShortcutConfig(
             keyCode: Int64(kVK_Tab),
             modifiers: CGEventFlags.maskControl.rawValue
         ),
-        copyUrl: ShortcutConfig(
-            keyCode: Int64(kVK_ANSI_C),
-            modifiers: CGEventFlags([.maskCommand, .maskShift]).rawValue
-        )
+        copyUrl: nil
     )
+}
+
+extension ShortcutsConfiguration {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tabSwitch = try container.decodeIfPresent(ShortcutConfig.self, forKey: .tabSwitch)
+        copyUrl = try container.decodeIfPresent(ShortcutConfig.self, forKey: .copyUrl)
+        maxRecentTabs = min(10, max(2, try container.decodeIfPresent(Int.self, forKey: .maxRecentTabs) ?? 6))
+    }
 }
 
 // Global shortcut config (read by event tap callback — C function pointer can only read globals)
 var tabSwitchKeyCode: Int64 = Int64(kVK_Tab)
 var tabSwitchModifiers: UInt64 = CGEventFlags.maskControl.rawValue
-var copyUrlKeyCode: Int64 = Int64(kVK_ANSI_C)
-var copyUrlModifiers: UInt64 = CGEventFlags([.maskCommand, .maskShift]).rawValue
+var copyUrlShortcut: ShortcutConfig?
 
 func updateShortcutGlobals(from config: ShortcutsConfiguration) {
-    tabSwitchKeyCode = config.tabSwitch.keyCode
-    tabSwitchModifiers = config.tabSwitch.modifiers
-    copyUrlKeyCode = config.copyUrl.keyCode
-    copyUrlModifiers = config.copyUrl.modifiers
+    tabSwitchKeyCode = config.tabSwitch?.keyCode ?? -1
+    tabSwitchModifiers = config.tabSwitch?.modifiers ?? 0
+    copyUrlShortcut = config.copyUrl
 }
 
 // MARK: - Browser Configuration
@@ -161,7 +166,7 @@ struct BrowserInfo: Identifiable, Codable {
     }
 
     // Custom Codable decoder: defaults appName to name if missing (backwards compat with v3.6 configs)
-    init(from decoder: Decoder) throws {
+    init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
@@ -838,13 +843,24 @@ class ShortcutRecorderNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         isRecording = true
-        displayString = "Press shortcut..."
         needsDisplay = true
         window?.makeFirstResponder(self)
     }
 
+    func cancelRecording() {
+        isRecording = false
+        needsDisplay = true
+        if window?.firstResponder === self {
+            window?.makeFirstResponder(nil)
+        }
+    }
+
     private func recordEvent(_ event: NSEvent) -> Bool {
         guard isRecording else { return false }
+        if event.keyCode == kVK_Escape {
+            cancelRecording()
+            return true
+        }
         let keyCode = Int64(event.keyCode)
         let modifiers = event.modifierFlags.intersection([.control, .option, .shift, .command])
         guard !modifiers.isEmpty else { return false }
@@ -889,7 +905,7 @@ class ShortcutRecorderNSView: NSView {
         NSColor.separatorColor.setStroke()
         path.stroke()
 
-        let text = isRecording ? "Press shortcut..." : (displayString.isEmpty ? "Click to set" : displayString)
+        let text = isRecording ? "Press shortcut..." : (displayString.isEmpty ? "Unassigned" : displayString)
         let textColor: NSColor = isRecording ? .secondaryLabelColor : (displayString.isEmpty ? .tertiaryLabelColor : .labelColor)
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 12, weight: .medium),
@@ -908,12 +924,12 @@ class ShortcutRecorderNSView: NSView {
 }
 
 struct ShortcutRecorderView: NSViewRepresentable {
-    @Binding var shortcut: ShortcutConfig
+    @Binding var shortcut: ShortcutConfig?
     var onChange: (() -> Void)?
 
     func makeNSView(context: Context) -> ShortcutRecorderNSView {
         let view = ShortcutRecorderNSView()
-        view.displayString = shortcut.displayString
+        view.displayString = shortcut?.displayString ?? ""
         view.onShortcutRecorded = { keyCode, modifiers in
             shortcut = ShortcutConfig(keyCode: keyCode, modifiers: modifiers)
             onChange?()
@@ -922,7 +938,7 @@ struct ShortcutRecorderView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: ShortcutRecorderNSView, context: Context) {
-        nsView.displayString = shortcut.displayString
+        nsView.displayString = shortcut?.displayString ?? ""
         nsView.onShortcutRecorded = { keyCode, modifiers in
             shortcut = ShortcutConfig(keyCode: keyCode, modifiers: modifiers)
             onChange?()
@@ -976,23 +992,48 @@ struct SetupView: View {
 
                     // Keyboard Shortcuts
                     VStack(alignment: .leading, spacing: 8) {
-                        sectionHeader("Keyboard Shortcuts")
+                        sectionHeader("Keyboard shortcuts")
 
                         VStack(spacing: 1) {
-                            shortcutRow("Switch Tabs", shortcut: $configManager.shortcuts.tabSwitch)
+                            shortcutRow("Switch tabs", shortcut: $configManager.shortcuts.tabSwitch)
                             Divider().padding(.horizontal, 12)
                             shortcutRow("Copy URL", shortcut: $configManager.shortcuts.copyUrl)
                         }
                         .background(Color.secondary.opacity(0.06))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                        Button("Reset to Defaults") {
+                        Button("Reset to defaults") {
                             configManager.shortcuts = .defaults
                             configManager.saveShortcuts()
                         }
                         .font(.system(size: 11))
                         .buttonStyle(.link)
                         .padding(.leading, 4)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        sectionHeader("Tab previews")
+                        HStack {
+                            Text("Maximum recent tabs")
+                                .font(.system(size: 13))
+                            Spacer()
+                            Picker("Maximum recent tabs", selection: Binding(
+                                get: { configManager.shortcuts.maxRecentTabs },
+                                set: {
+                                    configManager.shortcuts.maxRecentTabs = $0
+                                    configManager.saveShortcuts()
+                                }
+                            )) {
+                                ForEach(2...10, id: \.self) { count in
+                                    Text("\(count)").tag(count)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 70)
+                        }
+                        .padding(12)
+                        .background(Color.secondary.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
 
                     // Extension update notice
@@ -1058,14 +1099,14 @@ struct SetupView: View {
     }
 
     private func sectionHeader(_ title: String) -> some View {
-        Text(title.uppercased())
+        Text(title)
             .font(.system(size: 11, weight: .medium))
             .foregroundColor(.secondary)
             .tracking(0.5)
             .padding(.leading, 4)
     }
 
-    private func shortcutRow(_ label: String, shortcut: Binding<ShortcutConfig>) -> some View {
+    private func shortcutRow(_ label: String, shortcut: Binding<ShortcutConfig?>) -> some View {
         HStack {
             Text(label)
                 .font(.system(size: 13))
@@ -1075,6 +1116,19 @@ struct SetupView: View {
                 onChange: { configManager.saveShortcuts() }
             )
             .frame(width: 160, height: 28)
+            .help("Click to record a shortcut")
+            Button {
+                (NSApp.keyWindow?.firstResponder as? ShortcutRecorderNSView)?.cancelRecording()
+                shortcut.wrappedValue = nil
+                configManager.saveShortcuts()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Clear \(label.lowercased()) shortcut")
+            .help("Disable \(label.lowercased()) shortcut")
+            .frame(width: 20)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -1301,9 +1355,13 @@ class TabSwitcherState: ObservableObject {
     @Published var isVisible = false
     @Published var tabs: [TabInfo] = []
     @Published var selectedIndex: Int = 0
+    private var pointerLocationOnShow = NSPoint.zero
+    private var hoverSelectionEnabled = false
     
     func showSwitcher(tabs: [TabInfo], selectedIndex: Int) {
         DispatchQueue.main.async {
+            self.pointerLocationOnShow = NSEvent.mouseLocation
+            self.hoverSelectionEnabled = false
             self.tabs = tabs
             self.selectedIndex = selectedIndex
             self.isVisible = true
@@ -1316,6 +1374,18 @@ class TabSwitcherState: ObservableObject {
         }
     }
     
+    func selectHoveredTab(index: Int) {
+        guard isVisible, tabs.indices.contains(index) else { return }
+        // A stationary cursor must not override the keyboard selection on opening.
+        if !hoverSelectionEnabled {
+            guard NSEvent.mouseLocation != pointerLocationOnShow else { return }
+            hoverSelectionEnabled = true
+        }
+        guard selectedIndex != index else { return }
+        selectedIndex = index
+        sendMessage(["action": "select_tab", "tabId": tabs[index].id])
+    }
+
     func hideSwitcher() {
         DispatchQueue.main.async {
             self.isVisible = false
@@ -1434,7 +1504,7 @@ struct TabCardView: View {
     let tab: TabInfo
     let isSelected: Bool
     let cornerRadius: CGFloat = 10
-    let cardWidth: CGFloat = 220
+    let cardWidth: CGFloat
     let cardHeight: CGFloat = 146
     
     var body: some View {
@@ -1462,29 +1532,22 @@ struct TabCardView: View {
             }
             .frame(width: cardWidth, height: cardHeight)
             
-            // Title overlay at top - always on top
+            // A compact material label keeps contrast without shading the preview.
             HStack(spacing: 5) {
                 AsyncFaviconView(url: tab.favIconUrl, size: 12)
-                
+
                 Text(tab.title)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                
-                Spacer()
+
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 6)
-            .padding(.top, 5)
-            .padding(.bottom, 10)
-            .frame(width: cardWidth)
-            .background(
-                LinearGradient(
-                    gradient: Gradient(colors: [Color.black.opacity(0.8), Color.black.opacity(0.0)]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+            .padding(6)
         }
         .frame(width: cardWidth, height: cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
@@ -1545,24 +1608,18 @@ struct TabSwitcherView: View {
     
     var body: some View {
         if state.isVisible && !state.tabs.isEmpty {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: cardSpacing) {
-                        ForEach(Array(state.tabs.enumerated()), id: \.element.id) { index, tab in
-                            TabCardView(
-                                tab: tab,
-                                isSelected: index == state.selectedIndex
-                            )
-                            .id(index)
-                        }
-                    }
-                    .padding(padding)
-                }
-                .onChange(of: state.selectedIndex) {
-                    withAnimation(.easeOut(duration: 0.1)) {
-                        proxy.scrollTo(state.selectedIndex, anchor: .center)
+            GeometryReader { geometry in
+                let width = min(cardWidth, (geometry.size.width - padding * 2 - cardSpacing * CGFloat(state.tabs.count - 1)) / CGFloat(state.tabs.count))
+                HStack(spacing: cardSpacing) {
+                    ForEach(Array(state.tabs.enumerated()), id: \.element.id) { index, tab in
+                        TabCardView(tab: tab, isSelected: index == state.selectedIndex, cardWidth: width)
+                            .contentShape(Rectangle())
+                            .onContinuousHover { phase in
+                                if case .active = phase { state.selectHoveredTab(index: index) }
+                            }
                     }
                 }
+                .padding(padding)
             }
             .background(
                 VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
@@ -1599,86 +1656,23 @@ struct VisualEffectView: NSViewRepresentable {
 // MARK: - Get Browser Window Frame
 
 func getBrowserWindowFrame() -> NSRect? {
-    // First check if a supported browser is the frontmost app
     guard let frontApp = NSWorkspace.shared.frontmostApplication,
           let bundleId = frontApp.bundleIdentifier,
-          BrowserConfigManager.shared.enabledBundleIds.contains(bundleId) else {
-        debugLog("No supported browser is frontmost")
-        return nil
-    }
-    
-    // Get Chrome's windows using Accessibility API
-    let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
-    
-    // Try to get the focused window first
-    var focusedWindowRef: CFTypeRef?
-    if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowRef) == .success,
-       let focusedWindow = focusedWindowRef {
-        if let frame = getWindowFrame(focusedWindow as! AXUIElement) {
-            return frame
-        }
-    }
-    
-    // Fall back to first window in the list
-    var windowsRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-          let windows = windowsRef as? [AXUIElement],
-          let frontWindow = windows.first else {
-        debugLog("Could not get Chrome windows")
-        return nil
-    }
-    
-    return getWindowFrame(frontWindow)
-}
+          BrowserConfigManager.shared.enabledBundleIds.contains(bundleId),
+          let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
+          let desktopTop = NSScreen.screens.first?.frame.maxY else { return nil }
 
-func getWindowFrame(_ window: AXUIElement) -> NSRect? {
-    var positionRef: CFTypeRef?
-    var sizeRef: CFTypeRef?
-    
-    guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionRef) == .success,
-          AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef) == .success,
-          let posVal = positionRef,
-          let sizeVal = sizeRef else {
-        debugLog("Could not get window position/size")
-        return nil
+    // WindowServer geometry avoids a synchronous Accessibility request to the
+    // browser while it is processing the intercepted keyboard event.
+    for window in windows {
+        guard window[kCGWindowOwnerPID as String] as? pid_t == frontApp.processIdentifier,
+              window[kCGWindowLayer as String] as? Int == 0,
+              let bounds = window[kCGWindowBounds as String] as? [String: Any],
+              let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+              frame.width > 100, frame.height > 100 else { continue }
+        return NSRect(x: frame.minX, y: desktopTop - frame.maxY, width: frame.width, height: frame.height)
     }
-    
-    var position = CGPoint.zero
-    var size = CGSize.zero
-    
-    guard AXValueGetValue(posVal as! AXValue, .cgPoint, &position),
-          AXValueGetValue(sizeVal as! AXValue, .cgSize, &size) else {
-        debugLog("Could not extract position/size values")
-        return nil
-    }
-    
-    // Sanity check - window should have reasonable size
-    guard size.width > 100 && size.height > 100 else {
-        debugLog("Window size too small: \(size)")
-        return nil
-    }
-    
-    // Convert from top-left origin (Accessibility) to bottom-left origin (NSWindow)
-    // Need to find which screen the window is on
-    var screenHeight: CGFloat = 0
-    for screen in NSScreen.screens {
-        if screen.frame.contains(CGPoint(x: position.x + size.width/2, y: position.y + size.height/2)) ||
-           screen.frame.contains(position) {
-            screenHeight = screen.frame.maxY
-            break
-        }
-    }
-    
-    // If we couldn't find the screen, use main screen
-    if screenHeight == 0 {
-        screenHeight = NSScreen.main?.frame.maxY ?? 0
-    }
-    
-    let convertedY = screenHeight - position.y - size.height
-    
-    debugLog("Chrome window: pos=(\(position.x), \(position.y)) size=\(size) convertedY=\(convertedY)")
-    
-    return NSRect(x: position.x, y: convertedY, width: size.width, height: size.height)
+    return nil
 }
 
 // MARK: - Floating Window
@@ -1698,6 +1692,7 @@ class TabSwitcherWindow: NSPanel {
         self.hasShadow = true
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         self.isMovableByWindowBackground = false
+        self.acceptsMouseMovedEvents = true
         
         let hostingView = NSHostingView(rootView: TabSwitcherView())
         self.contentView = hostingView
@@ -1951,7 +1946,7 @@ extension AppDelegate {
 
 // MARK: - Debug Logging (to stderr, doesn't interfere with native messaging)
 
-let DEBUG_LOGGING = true // Set to true for debugging
+let DEBUG_LOGGING = false // Keep synchronous file logging out of the shortcut path
 let DEBUG_LOG_FILE = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("tabswitcher_debug.log")
 
 func debugLog(_ message: String) {
@@ -1979,12 +1974,16 @@ func debugLog(_ message: String) {
 
 // MARK: - Native Messaging Protocol
 
+let nativeMessageWriteLock = NSLock()
+
 func sendMessage(_ dict: [String: Any]) {
     guard let jsonData = try? JSONSerialization.data(withJSONObject: dict, options: []) else {
         debugLog("Failed to serialize message")
         return
     }
     
+    nativeMessageWriteLock.lock()
+    defer { nativeMessageWriteLock.unlock() }
     var length = UInt32(jsonData.count).littleEndian
     let lengthData = Data(bytes: &length, count: 4)
     
@@ -2084,8 +2083,8 @@ func handleMessage(_ message: [String: Any]) {
                 debugLog("Already auto-detected browser: \(ownerBrowserBundleId!) (PID \(ownerBrowserProcessId ?? -1)), ignoring extension registration: \(bundleId)")
             }
             let shortcuts: [String: String] = [
-                "tabSwitch": BrowserConfigManager.shared.shortcuts.tabSwitch.displayString,
-                "copyUrl": BrowserConfigManager.shared.shortcuts.copyUrl.displayString
+                "tabSwitch": BrowserConfigManager.shared.shortcuts.tabSwitch?.displayString ?? "",
+                "copyUrl": BrowserConfigManager.shared.shortcuts.copyUrl?.displayString ?? ""
             ]
             sendMessage(["action": "registered", "bundleId": ownerBrowserBundleId ?? bundleId, "shortcuts": shortcuts])
         }
@@ -2094,6 +2093,7 @@ func handleMessage(_ message: [String: Any]) {
         // Respond to ping to confirm connection is alive
         debugLog("Received ping, sending pong")
         sendMessage(["action": "pong"])
+
 
     case "url_copied":
         if let url = message["url"] as? String {
@@ -2105,6 +2105,7 @@ func handleMessage(_ message: [String: Any]) {
                 ToastManager.shared.showToast(message: "Copied!", detail: url)
             }
         }
+
 
     default:
         debugLog("Unknown action: \(action)")
@@ -2286,8 +2287,6 @@ func detectParentBrowser() -> (String, pid_t)? {
     debugLog("Could not detect parent browser after walking tree")
     return nil
 }
-var showUITimer: DispatchWorkItem? = nil
-let showUIDelay: Double = 0.15 // 150ms delay before showing UI
 
 // Lock file for event tap coordination - only one native host should have the event tap
 let eventTapLockFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".tabswitcher_eventtap.lock")
@@ -2384,11 +2383,16 @@ func setupNotificationListener() {
         
         debugLog("Received ctrl-tab notification for our browser: direction=\(direction), showUI=\(showUI)")
         
+        if direction == "cancel_switch" {
+            TabSwitcherState.shared.hideSwitcher()
+        }
+
         // Send to our extension
         sendMessage([
             "action": direction,
             "show_ui": showUI,
-            "current_window_only": !combineWindows
+            "current_window_only": !combineWindows,
+            "max_tabs": BrowserConfigManager.shared.shortcuts.maxRecentTabs
         ])
     }
     
@@ -2403,23 +2407,6 @@ func setupNotificationListener() {
         
         debugLog("Received ctrl-release notification")
         sendAction("end_switch")
-    }
-    
-    center.addObserver(forName: NSNotification.Name("com.tabswitcher.requestShowUI"), object: nil, queue: .main) { notification in
-        guard let userInfo = notification.userInfo,
-              let combineWindows = userInfo["combineWindows"] as? Bool else {
-            return
-        }
-        
-        // Only respond if this is for our browser
-        if let targetBrowser = userInfo["targetBrowser"] as? String {
-            guard let myBrowser = ownerBrowserBundleId, myBrowser == targetBrowser else {
-                return
-            }
-        }
-        
-        debugLog("Received request-show-ui notification")
-        sendMessage(["action": "request_show_ui", "current_window_only": !combineWindows])
     }
     
     // Listen for leader resignation - try to become the new leader
@@ -2468,6 +2455,11 @@ func setupNotificationListener() {
     center.addObserver(forName: NSNotification.Name(shortcutsChangedNotificationName), object: nil, queue: .main) { _ in
         debugLog("Received shortcuts-changed notification, reloading")
         BrowserConfigManager.shared.loadShortcuts()
+        let config = BrowserConfigManager.shared.shortcuts
+        sendMessage(["action": "shortcuts_changed", "shortcuts": [
+            "tabSwitch": config.tabSwitch?.displayString ?? "",
+            "copyUrl": config.copyUrl?.displayString ?? ""
+        ]])
     }
 
     // Listen for app update trigger (from notification click)
@@ -2584,18 +2576,6 @@ func postCtrlReleaseNotification() {
     )
 }
 
-func postRequestShowUINotification(combineWindows: Bool) {
-    guard let frontmostBrowser = getFrontmostBrowserBundleId() else { return }
-    
-    let center = DistributedNotificationCenter.default()
-    center.postNotificationName(
-        NSNotification.Name("com.tabswitcher.requestShowUI"),
-        object: nil,
-        userInfo: ["combineWindows": combineWindows, "targetBrowser": frontmostBrowser],
-        deliverImmediately: true
-    )
-}
-
 func postCopyUrlNotification() {
     guard let frontmostBrowser = getFrontmostBrowserBundleId() else { return }
 
@@ -2620,9 +2600,8 @@ func eventTapCallback(
     
     // Handle tap disabled
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-        if let refcon = refcon {
-            let tapRef = Unmanaged<AnyObject>.fromOpaque(refcon).takeUnretainedValue() as! CFMachPort
-            CGEvent.tapEnable(tap: tapRef, enable: true)
+        if let tap = keyboardEventTap {
+            CGEvent.tapEnable(tap: tap, enable: true)
         }
         return Unmanaged.passRetained(event)
     }
@@ -2656,8 +2635,6 @@ func eventTapCallback(
 
         // Detect switch modifier release
         if switchModifierIsPressed && !modifierNowPressed && switchInProgress {
-            showUITimer?.cancel()
-            showUITimer = nil
             postCtrlReleaseNotification()
             switchInProgress = false
             tabPressCount = 0
@@ -2669,6 +2646,13 @@ func eventTapCallback(
 
     // Handle key down events
     if type == .keyDown {
+        if keyCode == Int64(kVK_Escape) && switchInProgress {
+            postCtrlTabNotification(direction: "cancel_switch", showUI: false, combineWindows: false)
+            switchInProgress = false
+            tabPressCount = 0
+            return nil
+        }
+
         // Check for tab-switch shortcut (Shift excluded from base match — it toggles direction)
         let baseMods = tabSwitchModifiers & modifierMask & ~CGEventFlags.maskShift.rawValue
         let currentBase = currentMods & ~CGEventFlags.maskShift.rawValue
@@ -2685,27 +2669,13 @@ func eventTapCallback(
 
             debugLog("Broadcasting tab switch: direction=\(direction), tabPressCount=\(tabPressCount)")
 
-            if tabPressCount == 1 {
-                postCtrlTabNotification(direction: direction, showUI: false, combineWindows: combineWindows)
-                showUITimer?.cancel()
-                let timer = DispatchWorkItem {
-                    postRequestShowUINotification(combineWindows: combineWindows)
-                }
-                showUITimer = timer
-                DispatchQueue.main.asyncAfter(deadline: .now() + showUIDelay, execute: timer)
-            } else {
-                showUITimer?.cancel()
-                showUITimer = nil
-                postCtrlTabNotification(direction: direction, showUI: true, combineWindows: combineWindows)
-            }
+            postCtrlTabNotification(direction: direction, showUI: true, combineWindows: combineWindows)
 
             return nil
         }
 
-        // Check for copy-URL shortcut
-        let copyMods = copyUrlModifiers & modifierMask
-        if keyCode == copyUrlKeyCode && currentMods == copyMods {
-            debugLog("Copy URL shortcut detected")
+        if let shortcut = copyUrlShortcut,
+           keyCode == shortcut.keyCode && currentMods == (shortcut.modifiers & modifierMask) {
             postCopyUrlNotification()
             return nil
         }
@@ -2715,6 +2685,8 @@ func eventTapCallback(
 }
 
 // MARK: - Setup Event Tap
+
+var keyboardEventTap: CFMachPort?
 
 func setupEventTap() -> Bool {
     let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) |
@@ -2732,6 +2704,7 @@ func setupEventTap() -> Bool {
         return false
     }
     
+    keyboardEventTap = eventTap
     let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
     CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
     CGEvent.tapEnable(tap: eventTap, enable: true)
