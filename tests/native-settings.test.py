@@ -1,5 +1,6 @@
 """Exercise the app's actual preference types without starting its keyboard hook."""
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 
@@ -31,4 +32,5 @@ print("Settings passed: defaults, assigned shortcuts, clearing both shortcuts, p
 with tempfile.TemporaryDirectory(prefix='tab-switcher-settings-') as temporary:
     swift_file = Path(temporary) / 'settings.swift'
     swift_file.write_text('import Cocoa\nimport Carbon\n' + settings + checks)
-    subprocess.run(['xcrun', 'swift', str(swift_file)], check=True)
+    env = dict(os.environ, DEVELOPER_DIR=os.environ.get('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer'))
+    subprocess.run(['xcrun', 'swift', str(swift_file)], check=True, env=env)

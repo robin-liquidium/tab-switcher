@@ -167,7 +167,7 @@ struct BrowserInfo: Identifiable, Codable {
     }
 
     // Custom Codable decoder: defaults appName to name if missing (backwards compat with v3.6 configs)
-    init(from decoder: any Decoder) throws {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
@@ -453,8 +453,9 @@ class BrowserConfigManager: ObservableObject {
                 // Create manifest directory if needed
                 try? FileManager.default.createDirectory(atPath: manifestDir, withIntermediateDirectories: true)
 
-                // Always include CWS extension ID; also include legacy manual ID for backward compat
-                var origins = ["chrome-extension://\(CWS_EXTENSION_ID)/"]
+                // A local build serves only its unpacked extension, avoiding duplicate hosts.
+                let isLocalBuild = Bundle.main.object(forInfoDictionaryKey: "TabSwitcherLocalBuild") as? Bool == true
+                var origins = isLocalBuild ? [] : ["chrome-extension://\(CWS_EXTENSION_ID)/"]
                 if let legacyId = browser.extensionId, !legacyId.isEmpty, legacyId != CWS_EXTENSION_ID {
                     origins.append("chrome-extension://\(legacyId)/")
                 }
@@ -503,6 +504,7 @@ final class UpdaterViewModel: ObservableObject {
     }
 
     func startUpdater() {
+        guard Bundle.main.object(forInfoDictionaryKey: "TabSwitcherLocalBuild") as? Bool != true else { return }
         updaterController.startUpdater()
         updaterController.updater.publisher(for: \.canCheckForUpdates)
             .assign(to: &$canCheckForUpdates)
@@ -647,6 +649,7 @@ class BackgroundUpdateChecker: NSObject, ObservableObject, UNUserNotificationCen
     // MARK: - Periodic Checking
 
     func startPeriodicChecks() {
+        guard Bundle.main.object(forInfoDictionaryKey: "TabSwitcherLocalBuild") as? Bool != true else { return }
         isUpdateCheckLeader = tryBecomeUpdateCheckLeader()
         guard isUpdateCheckLeader else {
             debugLog("Not the update check leader, skipping periodic checks")
@@ -953,6 +956,9 @@ struct ShortcutRecorderView: NSViewRepresentable {
 struct SetupView: View {
     @ObservedObject var configManager = BrowserConfigManager.shared
     @ObservedObject var updater = updaterViewModel
+    // Browser-launched helpers can receive a generic NSApplication icon.
+    private let appIcon = Bundle.main.url(forResource: "AppIcon", withExtension: "icns")
+        .flatMap { NSImage(contentsOf: $0) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -960,7 +966,7 @@ struct SetupView: View {
                 VStack(spacing: 20) {
                     // Header
                     VStack(spacing: 4) {
-                        if let icon = NSApp.applicationIconImage {
+                        if let icon = appIcon ?? NSApp.applicationIconImage {
                             Image(nsImage: icon)
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
@@ -2093,12 +2099,6 @@ func handleMessage(_ message: [String: Any]) {
             sendMessage(["action": "registered", "bundleId": ownerBrowserBundleId ?? bundleId, "shortcuts": shortcuts])
         }
         
-    case "ping":
-        // Respond to ping to confirm connection is alive
-        debugLog("Received ping, sending pong")
-        sendMessage(["action": "pong"])
-
-
     case "url_copied":
         if let url = message["url"] as? String {
             debugLog("Received URL to copy: \(url)")
@@ -2110,6 +2110,10 @@ func handleMessage(_ message: [String: Any]) {
             }
         }
 
+    case "ping":
+        // Respond to ping to confirm connection is alive
+        debugLog("Received ping, sending pong")
+        sendMessage(["action": "pong"])
 
     default:
         debugLog("Unknown action: \(action)")
@@ -2457,6 +2461,7 @@ func setupNotificationListener() {
         }
     }
     
+
     // Listen for copy-URL request
     center.addObserver(forName: NSNotification.Name(copyUrlNotificationName), object: nil, queue: .main) { notification in
         guard let userInfo = notification.userInfo,

@@ -8,8 +8,7 @@
 
 - **Visual tab previews** — See thumbnails, favicons, and titles as you cycle through tabs
 - **Most recently used order** — Tabs ordered by recency, not position. One Ctrl+Tab instantly jumps to your last tab
-- **Optional shortcuts** — Remap or disable the tab-switch and copy-URL shortcuts
-- **Adjustable preview count** — Choose 2–10 recent tabs (default: 6), with wraparound cycling
+- **Customizable shortcut** — Remap the tab switcher to any key combination
 - **Native performance** — A lightweight macOS companion app intercepts shortcuts at the system level
 - **Multi-browser support** — Chrome, Brave, Edge, Arc, Vivaldi, Opera, and any Chromium-based browser
 - **Auto-updates** — The native app updates itself automatically via Sparkle
@@ -18,11 +17,7 @@
 
 Hold **Ctrl** and press **Tab** to bring up the visual switcher. Keep holding Ctrl and press Tab repeatedly to cycle through your tabs. Release Ctrl to switch to the selected tab.
 
-The switcher appears immediately. Hover a preview to select it, or press **Escape** to cancel without changing tabs. Cycling wraps in either direction.
-
-Choose the maximum number of recent tabs in the app (2–10, default: 6). Changes apply to the next switch.
-
-Copy URL is unassigned by default. Click either shortcut field to record a shortcut, press Escape to cancel recording, or click × to clear it. Clearing the tab-switch shortcut restores the browser's own key handling. Existing saved shortcuts are preserved.
+Shows recent tabs immediately. Hover a preview to select it; release Control to activate it. Press Escape to dismiss the previews without switching tabs. Cycling wraps in either direction. In the app, choose 2–10 recent tabs (default: 6). Copy URL is unassigned by default; click its shortcut field to assign it, or click × to disable it. The switch-tabs shortcut also has a × button; clearing it restores the browser’s own key handling. Settings are saved and apply to the next switch without restarting.
 
 Works exactly like macOS app switching (Cmd+Tab), but for your browser tabs.
 
@@ -61,13 +56,9 @@ If not prompted automatically:
 |----------|--------|
 | **Ctrl+Tab** | Open switcher, cycle forward |
 | **Ctrl+Shift+Tab** | Cycle backward |
-| **Escape** | Cancel an open switcher or shortcut recording |
-| **Copy URL** (unassigned by default) | Assign a shortcut in the app to copy the current URL |
 | **Alt+W** | Quick switch to last tab (no UI) |
 
-The tab-switch and copy-URL shortcuts can be customized in the app's setup window.
-
-Hover selection, cancellation, and the preview-count setting require both the updated app and extension. Reload an unpacked extension after changing its files; restarting the companion app alone does not load new extension code.
+All shortcuts can be customized in the app's setup window.
 
 ## Requirements
 
@@ -78,6 +69,40 @@ Hover selection, cancellation, and the preview-count setting require both the up
 ## Privacy
 
 Tab Switcher operates entirely locally. No data is collected, stored, or transmitted. See our [Privacy Policy](https://tabswitcher.app/privacy).
+
+## Local development build
+
+Run `./script/build_and_run.sh` from the repository root to build and open
+`dist/Tab Switcher Dev.app`. This bundle has a separate app identity and disables
+upstream update checks. The installed release is left in place.
+
+For an offline build on this Mac using the installed, version-checked Sparkle 2.8.1 framework:
+
+```bash
+SPARKLE_FRAMEWORK_PATH='/Applications/Tab Switcher.app/Contents/Frameworks/Sparkle.framework' \
+SIGNING_IDENTITY='Developer ID Application: Robin Obermaier (5S5288W3R7)' \
+./script/build_and_run.sh --build-only
+```
+
+Load the repository root as an unpacked extension in Helium and disable the
+Web Store copy. The local extension has its own ID; register that ID and the
+development binary in Helium's `com.tabswitcher.native.json` before use.
+macOS requires a separate Accessibility permission for the development app
+(called Device Control and Data Access on this Mac).
+
+Run `node --test tests/*.test.cjs` for switching and thumbnail-cache tests,
+`python3 tests/native-settings.test.py` for preferences, and
+`python3 tests/native-resources.test.py` for native image sizing and release checks.
+
+Previews are resized to at most 440 pixels before caching and sending to the app.
+The cache holds up to 20 previews within a 1 MiB encoded-string budget. Capture
+requests are debounced and only run for an active tab in a focused browser window.
+The native app releases previews and floating windows when hidden and drains
+message temporaries after each message. See [resource measurements](docs/resource-usage.md).
+
+The dev build compiles the same app icon artwork as the release. If you move the
+repository, reloading an unpacked extension can change its ID; update the native
+host registration to match the ID shown in the browser's extension details.
 
 ## Building from Source
 
@@ -102,24 +127,6 @@ The app bundle will be at `dist/Tab Switcher.app`. Code signing and notarization
 ```bash
 ./build.sh --sign              # build + code sign
 ./build.sh --sign --notarize   # build + sign + notarize
-```
-
-## Background resource usage
-
-Previews are resized to at most 440 pixels before caching and sending to the app.
-The cache holds up to 20 previews within a 1 MiB encoded-string budget. Capture
-requests are debounced and only run for an active tab in a focused browser window.
-The native app releases previews and floating windows when hidden and drains
-message temporaries after each message. See [measurements and the reproducible benchmark](docs/resource-usage.md).
-
-## Tests
-
-Run the extension behavior tests with Node.js and the native settings tests with Python 3 and the macOS Swift toolchain:
-
-```bash
-node --test tests/*.test.cjs
-python3 tests/native-settings.test.py
-python3 tests/native-resources.test.py
 ```
 
 ## Project Structure

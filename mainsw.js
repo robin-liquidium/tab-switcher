@@ -24,7 +24,7 @@ var slowtimerValue = 1500;
 var fasttimerValue = 200;
 var timer;
 
-// Enable debug logging when troubleshooting
+// Debug logging (enabled for troubleshooting)
 var loggingOn = false;
 
 // Native messaging for Ctrl+Tab interception
@@ -527,7 +527,7 @@ var connectNativeHost = function() {
 				// Register this extension with its browser's bundle ID
 				sendToNativeHost({ action: "register", bundleId: browserBundleId, extensionVersion: EXTENSION_VERSION });
 			} else if (message.action === "registered" || message.action === "shortcuts_changed") {
-				log("Received native shortcut configuration");
+				log("Successfully registered with native host for browser: " + message.bundleId);
 				if (message.shortcuts) {
 					chrome.storage.local.set({ shortcuts: message.shortcuts });
 				}
@@ -704,24 +704,15 @@ var handleNativeEndSwitch = async function() {
 	}
 };
 
+// Only the focused profile may return a URL to the companion app.
 var handleCopyUrl = async function() {
-	log("TabSwitch::COPY_URL requested");
-	var isFocused = await isThisProfileFocused();
-	if (!isFocused) {
-		log("TabSwitch::Ignoring copy_url - this profile is not focused");
-		return;
-	}
-	try {
-		var tabs = await chrome.tabs.query({active: true, currentWindow: true});
-		if (tabs && tabs.length > 0) {
-			var url = tabs[0].url;
-			var title = tabs[0].title || '';
-			log("TabSwitch::Sending URL to native host: " + url);
-			sendToNativeHost({ action: "url_copied", url: url, title: title });
-		}
-	} catch (e) {
-		log("TabSwitch::Error getting active tab URL: " + e.message);
-	}
+    try {
+        var windows = await chrome.windows.getAll({populate: true, windowTypes: ['normal']});
+        var tab = windows.find(win => win.focused)?.tabs.find(tab => tab.active);
+        if (tab?.url) sendToNativeHost({ action: "url_copied", url: tab.url });
+    } catch (error) {
+        log("Copy URL failed: " + error.message);
+    }
 };
 
 // Keep service worker alive (Chrome kills inactive workers after 30s)

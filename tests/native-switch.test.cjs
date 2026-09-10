@@ -26,7 +26,6 @@ function harness({ count = 9, focused = true, delay = 0 } = {}) {
       onActivated: event(), onUpdated: event(), onCreated: event(), onRemoved: event(),
       get: async id => { calls.tabs++; const tab = windows.flatMap(w => w.tabs).find(t => t.id === id); if (!tab) throw Error('Tab closed'); return tab; },
       update: async id => activated.push(id),
-      query: async () => tabs.filter(tab => tab.active),
     },
   };
   const context = vm.createContext({ chrome, navigator: { userAgent: 'Helium' }, console, setTimeout() {}, setInterval() {}, fetch: async () => ({ json: async () => ({}) }) });

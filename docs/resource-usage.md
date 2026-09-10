@@ -1,13 +1,12 @@
 # Resource measurements
 
-Measured on macOS on September 10, 2026, using macOS `footprint`.
+Measured on Robin's Mac on September 10, 2026, using macOS `footprint`.
 Resident memory (`ps` RSS) understated the original helper's usage: its footprint
 was 1,289 MB, including about 1.1 GB of IOSurfaces, after normal use.
 
 ## Same-workload comparison
 
-Two freshly launched, release-optimized local development helpers (automatic update
-checks disabled in both builds) received the same sequence
+Two freshly launched, release-optimized native helpers received the same sequence
 of 60 show/hide messages, each containing six 3840×2160 JPEG previews. Each preview
 was visible for 150 ms, followed by 100 ms hidden. Measurements include brief idle
 periods. Both builds received full-resolution input, so this isolates the native
@@ -44,6 +43,8 @@ it measured 18 MB with 0.0% CPU in an idle snapshot.
 
 Live Helium validation confirmed the updated extension was connected and produced
 a 440×275 JPEG preview occupying 2,875 encoded characters for Example Domain.
+The dev app now includes AppIcon.icns and Assets.car compiled from the release
+artwork; the displayed icon was visually compared against the installed release.
 
 Image sizing follows [Apple's ImageIO thumbnail documentation](https://developer.apple.com/documentation/imageio/kcgimagesourcecreatethumbnailfromimagealways).
 
@@ -54,7 +55,7 @@ node --test tests/*.test.cjs
 python3 tests/native-settings.test.py
 python3 tests/native-resources.test.py
 python3 tests/benchmark-resources.py \
-  --app '/absolute/path/to/Tab Switcher.app' \
+  --app '/Applications/Tab Switcher Dev.app' \
   --image /absolute/path/to/3840x2160-preview.jpg --cycles 60
 ```
 
