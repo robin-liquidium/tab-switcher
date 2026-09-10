@@ -35,7 +35,11 @@ var nativeHostConnected = false;
 var tabThumbnails = {}; // Map of tabId -> base64 thumbnail data
 var tabThumbnailOrder = []; // Track order for LRU eviction
 var MAX_THUMBNAILS = 20; // Limit memory usage - keep only 20 most recent thumbnails
-var lastActiveTabId = null; // Track the last active tab for thumbnail capture
+var MAX_THUMBNAIL_CHARS = 1024 * 1024; // At most 2 MiB of UTF-16 image strings
+var thumbnailTimer;
+var thumbnailCaptureInFlight = false;
+var thumbnailGeneration = 0;
+var lastThumbnailCapture = 0;
 
 var log = function(str) {
 	if(loggingOn) {
@@ -275,7 +279,6 @@ chrome.tabs.onActivated.addListener(function(activeInfo){
 	// Note: By the time this fires, the new tab is already visible
 	// So we capture the NEW tab's thumbnail (the one we just switched to)
 	// This ensures each tab's thumbnail is captured while it's visible
-	lastActiveTabId = activeInfo.tabId;
 
 	if(!slowSwitchOngoing && !fastSwitchOngoing && !nativeSwitchOngoing) {
 		var index = mru.indexOf(activeInfo.tabId);
@@ -290,9 +293,7 @@ chrome.tabs.onActivated.addListener(function(activeInfo){
 		}
 		
 		// Capture thumbnail of the tab we just switched TO (after a brief delay for render)
-		setTimeout(function() {
-			captureThumbnail(activeInfo.tabId, activeInfo.windowId);
-		}, 300);
+		scheduleThumbnailCapture(activeInfo.tabId, activeInfo.windowId);
 	}
 });
 
@@ -300,9 +301,7 @@ chrome.tabs.onActivated.addListener(function(activeInfo){
 chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
 	if (changeInfo.status === 'complete' && tab.active) {
 		// Page finished loading, capture a fresh thumbnail after a short delay
-		setTimeout(function() {
-			captureThumbnail(tabId, tab.windowId);
-		}, 500);
+		scheduleThumbnailCapture(tabId, tab.windowId);
 	}
 });
 
@@ -396,55 +395,66 @@ var printMRUSimple = function() {
 // Thumbnail Capture for Visual Tab Switcher
 // ============================================
 
-var captureThumbnail = function(tabId, windowId) {
-	// First check if the tab still exists and is in a valid state
-	chrome.tabs.get(tabId, function(tab) {
-		if (chrome.runtime.lastError || !tab) {
-			log("Cannot capture thumbnail - tab doesn't exist: " + tabId);
-			return;
-		}
-		
-		// Skip chrome:// and other restricted URLs
-		if (tab.url && (tab.url.startsWith('chrome://') || 
-		                tab.url.startsWith('chrome-extension://') ||
-		                tab.url.startsWith('devtools://') ||
-		                tab.url.startsWith('edge://') ||
-		                tab.url.startsWith('about:'))) {
-			log("Skipping thumbnail capture for restricted URL: " + tab.url);
-			return;
-		}
+// Coalesce activation/loading bursts and stay below Chrome's capture quota.
+var scheduleThumbnailCapture = function(tabId, windowId) {
+	clearTimeout(thumbnailTimer);
+	var generation = ++thumbnailGeneration;
+	thumbnailTimer = setTimeout(function() {
+		captureThumbnail(tabId, windowId, generation);
+	}, Math.max(500, 1000 - (Date.now() - lastThumbnailCapture)));
+};
 
-		// Capture the visible tab as a low-quality JPEG
-		chrome.tabs.captureVisibleTab(windowId, {
-			format: 'jpeg',
-			quality: 40  // Lower quality for smaller size and memory
-		}, function(dataUrl) {
-			if (chrome.runtime.lastError) {
-				log("Failed to capture thumbnail: " + chrome.runtime.lastError.message);
-				return;
-			}
-			if (dataUrl) {
-				// Update LRU order
-				var existingIndex = tabThumbnailOrder.indexOf(tabId);
-				if (existingIndex !== -1) {
-					tabThumbnailOrder.splice(existingIndex, 1);
-				}
-				tabThumbnailOrder.unshift(tabId); // Add to front (most recent)
-				
-				// Store thumbnail
-				tabThumbnails[tabId] = dataUrl;
-				
-				// Evict old thumbnails if over limit
-				while (tabThumbnailOrder.length > MAX_THUMBNAILS) {
-					var oldestTabId = tabThumbnailOrder.pop();
-					delete tabThumbnails[oldestTabId];
-					log("Evicted old thumbnail for tab " + oldestTabId);
-				}
-				
-				log("Captured thumbnail for tab " + tabId + " (total: " + tabThumbnailOrder.length + ")");
-			}
-		});
-	});
+var captureThumbnail = async function(tabId, windowId, generation = thumbnailGeneration) {
+	if (thumbnailCaptureInFlight) {
+		scheduleThumbnailCapture(tabId, windowId);
+		return;
+	}
+	thumbnailCaptureInFlight = true;
+	var bitmap;
+	var canvas;
+	try {
+		var tab = await chrome.tabs.get(tabId);
+		var win = await chrome.windows.get(windowId);
+		if (generation !== thumbnailGeneration || !tab.active || tab.windowId !== windowId ||
+			!win.focused || win.state === 'minimized' || !/^https?:/.test(tab.url || '')) return;
+
+		lastThumbnailCapture = Date.now();
+		var dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 40 });
+		var blob = await (await fetch(dataUrl)).blob();
+		bitmap = await createImageBitmap(blob);
+		dataUrl = null;
+		blob = null;
+		var scale = Math.min(1, 440 / Math.max(bitmap.width, bitmap.height));
+		canvas = new OffscreenCanvas(Math.max(1, Math.round(bitmap.width * scale)),
+			Math.max(1, Math.round(bitmap.height * scale)));
+		canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+		bitmap.close();
+		bitmap = null;
+		var thumbnail = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.6 });
+		var bytes = new Uint8Array(await thumbnail.arrayBuffer());
+		var encoded = 'data:image/jpeg;base64,' + btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''));
+
+		// A tab may switch, navigate, or close while capture/encoding is in flight.
+		var current = await chrome.tabs.get(tabId);
+		if (generation !== thumbnailGeneration || !current.active || current.url !== tab.url ||
+			current.windowId !== windowId) return;
+		var existingIndex = tabThumbnailOrder.indexOf(tabId);
+		if (existingIndex !== -1) tabThumbnailOrder.splice(existingIndex, 1);
+		tabThumbnailOrder.unshift(tabId);
+		tabThumbnails[tabId] = encoded;
+		var totalChars = Object.values(tabThumbnails).reduce((sum, value) => sum + value.length, 0);
+		while (tabThumbnailOrder.length > MAX_THUMBNAILS || totalChars > MAX_THUMBNAIL_CHARS) {
+			var oldest = tabThumbnailOrder.pop();
+			totalChars -= tabThumbnails[oldest].length;
+			delete tabThumbnails[oldest];
+		}
+	} catch (error) {
+		log('Thumbnail capture failed: ' + error.message);
+	} finally {
+		if (bitmap) bitmap.close();
+		if (canvas) { canvas.width = 1; canvas.height = 1; }
+		thumbnailCaptureInFlight = false;
+	}
 };
 
 // Capture thumbnail of the current active tab (for initial capture)
@@ -452,8 +462,7 @@ var captureCurrentTabThumbnail = function() {
 	chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
 		if (tabs && tabs.length > 0) {
 			var tab = tabs[0];
-			lastActiveTabId = tab.id;
-			captureThumbnail(tab.id, tab.windowId);
+			scheduleThumbnailCapture(tab.id, tab.windowId);
 		}
 	});
 };

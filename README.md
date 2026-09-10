@@ -104,13 +104,22 @@ The app bundle will be at `dist/Tab Switcher.app`. Code signing and notarization
 ./build.sh --sign --notarize   # build + sign + notarize
 ```
 
+## Background resource usage
+
+Previews are resized to at most 440 pixels before caching and sending to the app.
+The cache holds up to 20 previews within a 1 MiB encoded-string budget. Capture
+requests are debounced and only run for an active tab in a focused browser window.
+The native app releases previews and floating windows when hidden and drains
+message temporaries after each message. See [measurements and the reproducible benchmark](docs/resource-usage.md).
+
 ## Tests
 
 Run the extension behavior tests with Node.js and the native settings tests with Python 3 and the macOS Swift toolchain:
 
 ```bash
-node --test tests/native-switch.test.cjs
+node --test tests/*.test.cjs
 python3 tests/native-settings.test.py
+python3 tests/native-resources.test.py
 ```
 
 ## Project Structure

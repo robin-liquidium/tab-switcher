@@ -5,6 +5,7 @@ import Carbon.HIToolbox
 import ApplicationServices
 import Sparkle
 import UserNotifications
+import ImageIO
 
 let APP_VERSION = "3.7.5"
 let CWS_EXTENSION_ID = "pbpgegamabjlnegmfcjelciaenfkmfoo"
@@ -1389,6 +1390,8 @@ class TabSwitcherState: ObservableObject {
     func hideSwitcher() {
         DispatchQueue.main.async {
             self.isVisible = false
+            self.tabs = []
+            self.selectedIndex = 0
         }
     }
 }
@@ -1589,7 +1592,7 @@ struct AsyncFaviconView: View {
         guard !url.isEmpty, let faviconURL = URL(string: url) else { return }
         
         URLSession.shared.dataTask(with: faviconURL) { data, _, _ in
-            if let data = data, let loadedImage = NSImage(data: data) {
+            if let data = data, let loadedImage = downsampleImage(data, maxPixelSize: 72) {
                 DispatchQueue.main.async {
                     self.image = loadedImage
                 }
@@ -1723,15 +1726,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Setup macOS system notifications for background update checking
         BackgroundUpdateChecker.shared.setupNotifications()
         
-        // Create the floating window for tab switching UI
-        window = TabSwitcherWindow()
-        toastWindow = ToastWindow()
-        debugLog("Window created")
+        // Allocate floating windows only while their UI is visible.
 
         // Observe toast visibility
         toastCancellable = ToastManager.shared.$isVisible.sink { [weak self] isVisible in
             DispatchQueue.main.async {
                 if isVisible {
+                    if self?.toastWindow == nil { self?.toastWindow = ToastWindow() }
                     let toastWidth: CGFloat = 290
                     let toastHeight: CGFloat = 54
                     let bottomMargin: CGFloat = 20
@@ -1751,6 +1752,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.toastWindow?.orderFront(nil)
                 } else {
                     self?.toastWindow?.orderOut(nil)
+                    self?.toastWindow = nil
                 }
             }
         }
@@ -1804,6 +1806,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     
                     let tabCount = TabSwitcherState.shared.tabs.count
                     guard tabCount > 0 else { return }
+                    if self?.window == nil { self?.window = TabSwitcherWindow() }
                     
                     let cardWidth: CGFloat = 220
                     let cardSpacing: CGFloat = 12
@@ -1852,6 +1855,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     debugLog("Hiding window")
                     self?.window?.orderOut(nil)
+                    self?.window = nil
                 }
             }
         }
@@ -2112,6 +2116,19 @@ func handleMessage(_ message: [String: Any]) {
     }
 }
 
+func downsampleImage(_ data: Data, maxPixelSize: Int) -> NSImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, [
+        kCGImageSourceShouldCache: false
+    ] as CFDictionary),
+    let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        kCGImageSourceShouldCacheImmediately: true
+    ] as CFDictionary) else { return nil }
+    return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+}
+
 func parseTabInfo(_ dict: [String: Any]) -> TabInfo? {
     guard let id = dict["id"] as? Int,
           let title = dict["title"] as? String else {
@@ -2126,7 +2143,8 @@ func parseTabInfo(_ dict: [String: Any]) -> TabInfo? {
        !thumbnailData.isEmpty,
        let dataUrl = thumbnailData.components(separatedBy: ",").last,
        let imageData = Data(base64Encoded: dataUrl) {
-        thumbnail = NSImage(data: imageData)
+        // Cards are at most 220 points wide; keep only a Retina-sized preview.
+        thumbnail = downsampleImage(imageData, maxPixelSize: 440)
     }
     
     return TabInfo(id: id, title: title, favIconUrl: favIconUrl, thumbnail: thumbnail, url: url)
@@ -2498,7 +2516,11 @@ func setupNotificationListener() {
     // Periodic check for dead leader (backup in case leader crashes without notification)
     // Only do this for non-leaders that were launched via native messaging
     if !isEventTapLeader {
-        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { timer in
+            if isEventTapLeader {
+                timer.invalidate()
+                return
+            }
             // Check if the current leader is still alive
             if FileManager.default.fileExists(atPath: eventTapLockFile.path) {
                 if let contents = try? String(contentsOf: eventTapLockFile, encoding: .utf8),
@@ -2525,6 +2547,7 @@ func setupNotificationListener() {
                 }
             }
         }
+        timer.tolerance = 1.0
     }
 }
 
@@ -2717,14 +2740,17 @@ func setupEventTap() -> Bool {
 func startMessageReader() {
     debugLog("Starting message reader thread")
     DispatchQueue.global(qos: .userInitiated).async {
-        while true {
+        // This dispatch block lives for the entire connection. Drain Foundation
+        // and image temporaries per message, rather than when the block returns.
+        while autoreleasepool(invoking: { () -> Bool in
             if let message = readMessage() {
                 handleMessage(message)
+                return true
             } else {
-                // Short sleep to prevent busy waiting
-                Thread.sleep(forTimeInterval: 0.01)
+                return false
             }
-        }
+        }) {}
+        DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
     }
 }
 
