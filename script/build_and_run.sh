@@ -10,7 +10,7 @@ mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Frameworks" "$APP_BU
 if [[ -n "${SPARKLE_FRAMEWORK_PATH:-}" ]]; then
   # Offline development can use the same pinned framework from the installed app.
   FRAMEWORK="$SPARKLE_FRAMEWORK_PATH"
-  [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$FRAMEWORK/Resources/Info.plist")" == "2.8.1" ]]
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$FRAMEWORK/Resources/Info.plist")" == "2.9.6" ]]
   xcrun swiftc -O -enable-upcoming-feature ExistentialAny -target "$(uname -m)-apple-macosx14.0" \
     -F "$(dirname "$FRAMEWORK")" -framework Sparkle \
     "$ROOT_DIR/native-host/Sources/tab-switcher/main.swift" \
@@ -35,13 +35,13 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>tab-switcher</string>
-<key>CFBundleIdentifier</key><string>com.tabswitcher.dev</string>
+<key>CFBundleIdentifier</key><string>build.robin.tabswitcher.dev</string>
 <key>CFBundleName</key><string>Tab Switcher Dev</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleIconName</key><string>AppIcon</string>
-<key>CFBundleShortVersionString</key><string>3.7.5</string>
-<key>CFBundleVersion</key><string>3.7.5</string>
+<key>CFBundleShortVersionString</key><string>3.8.0</string>
+<key>CFBundleVersion</key><string>3.8.0</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>LSUIElement</key><true/>

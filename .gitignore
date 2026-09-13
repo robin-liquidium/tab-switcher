@@ -14,3 +14,9 @@ dist/
 
 # Debug logs
 *.log
+
+# Release credentials and Python caches
+*.p8
+*.p12
+*.pem
+__pycache__/

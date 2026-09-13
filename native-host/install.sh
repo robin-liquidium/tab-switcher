@@ -5,8 +5,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-HOST_NAME="com.tabswitcher.native"
-INSTALL_DIR="$HOME/.tab-switcher"
+HOST_NAME="build.robin.tabswitcher.native"
+INSTALL_DIR="$HOME/.tab-switcher-robin"
 CHROME_NATIVE_HOSTS_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 
 echo "========================================"

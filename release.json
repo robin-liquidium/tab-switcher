@@ -1,0 +1,13 @@
+{
+  "version": "3.8.0",
+  "build": 3800,
+  "date": "2026-09-13",
+  "changes": [
+    "Show Ctrl+Tab previews immediately and select previews by hovering.",
+    "Choose 2\u201310 recent tabs (six by default), with cycling that wraps in either direction.",
+    "Assign or disable the tab-switch and copy-URL shortcuts; Escape cancels recording or a switch.",
+    "Use softer preview labels and the updated app icon.",
+    "Keep preview memory bounded with smaller cached images and prompt release of hidden previews.",
+    "Receive native app updates from this independently maintained fork."
+  ]
+}

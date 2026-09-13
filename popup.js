@@ -53,18 +53,10 @@ chrome.runtime.sendMessage({ action: "get_version_info" }, function(info) {
 
   var banner = document.getElementById("update-banner");
 
-  // Priority 1: CWS migration banner for manual installs
-  if (info.isManualInstall && info.chromeWebStoreUrl) {
-    banner.className = "update-banner cws";
-    banner.innerHTML = 'Now on the Chrome Web Store! <a href="' + info.chromeWebStoreUrl + '" target="_blank">Install for automatic updates</a>';
-    banner.style.display = "block";
-    return;
-  }
-
-  // Priority 2: Update available for manual installs
+  // Unpacked extensions are updated by replacing their files and reloading.
   if (info.isManualInstall && info.latestExtensionVersion && compareVersions(currentVersion, info.latestExtensionVersion) < 0) {
     banner.className = "update-banner update";
-    banner.innerHTML = 'Update available (v' + info.latestExtensionVersion + ') — <a href="https://tabswitcher.app/setup" target="_blank">Download</a>';
+    banner.innerHTML = 'Update available (v' + info.latestExtensionVersion + ') — <a href="https://github.com/robin-liquidium/tab-switcher#installation" target="_blank">Download</a>';
     banner.style.display = "block";
   }
 });

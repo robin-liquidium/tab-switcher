@@ -4,9 +4,8 @@
 
 set -e
 
-HOST_NAME="com.tabswitcher.native"
-INSTALL_DIR="$HOME/.tab-switcher"
-OLD_INSTALL_DIR="$HOME/.clut-native-host"
+HOST_NAME="build.robin.tabswitcher.native"
+INSTALL_DIR="$HOME/.tab-switcher-robin"
 CHROME_NATIVE_HOSTS_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 
 echo "========================================"
@@ -20,12 +19,6 @@ if [[ -d "$INSTALL_DIR" ]]; then
     rm -rf "$INSTALL_DIR"
 else
     echo "Binary directory not found (already removed?)"
-fi
-
-# Remove old binary directory if exists
-if [[ -d "$OLD_INSTALL_DIR" ]]; then
-    echo "Removing old binary directory: $OLD_INSTALL_DIR"
-    rm -rf "$OLD_INSTALL_DIR"
 fi
 
 # Remove the manifest

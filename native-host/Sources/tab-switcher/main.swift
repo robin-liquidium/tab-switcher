@@ -7,9 +7,9 @@ import Sparkle
 import UserNotifications
 import ImageIO
 
-let APP_VERSION = "3.7.5"
-let CWS_EXTENSION_ID = "pbpgegamabjlnegmfcjelciaenfkmfoo"
-let CWS_URL = "https://chromewebstore.google.com/detail/tab-switcher/pbpgegamabjlnegmfcjelciaenfkmfoo"
+let APP_VERSION = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "3.8.0"
+let FORK_EXTENSION_ID = "ipcmhgncockbpbfddohlgeimcjajpbgn"
+let EXTENSION_DOWNLOAD_URL = "https://github.com/robin-liquidium/tab-switcher/releases/latest/download/TabSwitcher-extension.zip"
 
 // MARK: - Keyboard Shortcut Configuration
 
@@ -278,26 +278,31 @@ class BrowserConfigManager: ObservableObject {
 
     private let configURL: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let configDir = appSupport.appendingPathComponent("TabSwitcher")
+        let configDir = appSupport.appendingPathComponent("TabSwitcherRobin")
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         return configDir.appendingPathComponent("browser_config.json")
     }()
 
     private let cachedBrowserListURL: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let configDir = appSupport.appendingPathComponent("TabSwitcher")
+        let configDir = appSupport.appendingPathComponent("TabSwitcherRobin")
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         return configDir.appendingPathComponent("browser_list_cache.json")
     }()
 
     private let shortcutsURL: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let configDir = appSupport.appendingPathComponent("TabSwitcher")
+        let configDir = appSupport.appendingPathComponent("TabSwitcherRobin")
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         return configDir.appendingPathComponent("shortcuts.json")
     }()
 
     init() {
+        let oldDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("TabSwitcher")
+        for destination in [configURL, shortcutsURL] where !FileManager.default.fileExists(atPath: destination.path) {
+            try? FileManager.default.copyItem(at: oldDirectory.appendingPathComponent(destination.lastPathComponent), to: destination)
+        }
         loadConfig()
         loadShortcuts()
         fetchRemoteBrowserList()
@@ -318,7 +323,7 @@ class BrowserConfigManager: ObservableObject {
         updateShortcutGlobals(from: shortcuts)
         // Notify other instances
         DistributedNotificationCenter.default().postNotificationName(
-            NSNotification.Name("com.tabswitcher.shortcutsChanged"),
+            NSNotification.Name("build.robin.tabswitcher.shortcutsChanged"),
             object: nil,
             userInfo: nil,
             deliverImmediately: true
@@ -376,7 +381,7 @@ class BrowserConfigManager: ObservableObject {
     /// Fetches the browser list from the website and caches it locally.
     /// On success, reloads the browser list to pick up any new browsers.
     func fetchRemoteBrowserList() {
-        guard let url = URL(string: "https://tabswitcher.app/browsers.json") else { return }
+        guard let url = URL(string: "https://raw.githubusercontent.com/robin-liquidium/tab-switcher/main/docs/browsers.json") else { return }
 
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self = self,
@@ -441,28 +446,27 @@ class BrowserConfigManager: ObservableObject {
             debugLog("Using actual binary path for manifest: \(bundlePath)")
         } else {
             // Fallback to expected installation path
-            nativeHostPath = "/Applications/Tab Switcher.app/Contents/MacOS/tab-switcher"
+            nativeHostPath = "/Applications/Tab Switcher Robin.app/Contents/MacOS/tab-switcher"
             debugLog("Using fallback binary path for manifest: \(nativeHostPath)")
         }
         
         for browser in browsers {
             let manifestDir = browser.fullNativeMessagingPath
-            let manifestPath = "\(manifestDir)/com.tabswitcher.native.json"
+            let manifestPath = "\(manifestDir)/build.robin.tabswitcher.native.json"
 
             if browser.isEnabled {
                 // Create manifest directory if needed
                 try? FileManager.default.createDirectory(atPath: manifestDir, withIntermediateDirectories: true)
 
-                // A local build serves only its unpacked extension, avoiding duplicate hosts.
-                let isLocalBuild = Bundle.main.object(forInfoDictionaryKey: "TabSwitcherLocalBuild") as? Bool == true
-                var origins = isLocalBuild ? [] : ["chrome-extension://\(CWS_EXTENSION_ID)/"]
-                if let legacyId = browser.extensionId, !legacyId.isEmpty, legacyId != CWS_EXTENSION_ID {
+                // Only this fork and any explicitly configured unpacked extension may connect.
+                var origins = ["chrome-extension://\(FORK_EXTENSION_ID)/"]
+                if let legacyId = browser.extensionId, !legacyId.isEmpty, legacyId != FORK_EXTENSION_ID {
                     origins.append("chrome-extension://\(legacyId)/")
                 }
 
                 // Create manifest
                 let manifest: [String: Any] = [
-                    "name": "com.tabswitcher.native",
+                    "name": "build.robin.tabswitcher.native",
                     "description": "Tab Switcher Native Helper",
                     "path": nativeHostPath,
                     "type": "stdio",
@@ -533,12 +537,12 @@ class BackgroundUpdateChecker: NSObject, ObservableObject, UNUserNotificationCen
     private var connectedExtensionVersion: String?
 
     private let updateCheckerLockFile: URL = {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".tabswitcher_updatechecker.lock")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".robin_tabswitcher_updatechecker.lock")
     }()
 
     private let notifiedVersionsURL: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let configDir = appSupport.appendingPathComponent("TabSwitcher")
+        let configDir = appSupport.appendingPathComponent("TabSwitcherRobin")
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         return configDir.appendingPathComponent("notified_versions.json")
     }()
@@ -631,7 +635,7 @@ class BackgroundUpdateChecker: NSObject, ObservableObject, UNUserNotificationCen
         if isUpdateCheckLeader {
             try? FileManager.default.removeItem(at: updateCheckerLockFile)
             DistributedNotificationCenter.default().postNotificationName(
-                NSNotification.Name("com.tabswitcher.updateCheckerResigned"),
+                NSNotification.Name("build.robin.tabswitcher.updateCheckerResigned"),
                 object: nil, userInfo: nil, deliverImmediately: true
             )
         }
@@ -669,7 +673,7 @@ class BackgroundUpdateChecker: NSObject, ObservableObject, UNUserNotificationCen
 
     private func checkForUpdates() {
         guard isUpdateCheckLeader else { return }
-        guard let url = URL(string: "https://tabswitcher.app/version.json") else { return }
+        guard let url = URL(string: "https://github.com/robin-liquidium/tab-switcher/releases/latest/download/version.json") else { return }
 
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
             guard let self = self, let data = data, error == nil else {
@@ -796,7 +800,7 @@ class BackgroundUpdateChecker: NSObject, ObservableObject, UNUserNotificationCen
 
         // Post distributed notification for any directly-launched instance to handle
         DistributedNotificationCenter.default().postNotificationName(
-            NSNotification.Name("com.tabswitcher.triggerAppUpdate"),
+            NSNotification.Name("build.robin.tabswitcher.triggerAppUpdate"),
             object: nil, userInfo: nil, deliverImmediately: true
         )
 
@@ -824,7 +828,7 @@ class BackgroundUpdateChecker: NSObject, ObservableObject, UNUserNotificationCen
         debugLog("User clicked extension update notification")
 
         DistributedNotificationCenter.default().postNotificationName(
-            NSNotification.Name("com.tabswitcher.showExtensionUpdate"),
+            NSNotification.Name("build.robin.tabswitcher.showExtensionUpdate"),
             object: nil, userInfo: nil, deliverImmediately: true
         )
 
@@ -1062,12 +1066,12 @@ struct SetupView: View {
                                 .buttonStyle(.plain)
                             }
 
-                            Text("Install the latest version from the Chrome Web Store for automatic updates.")
+                            Text("Replace the unpacked extension files with the latest download, then click Reload on the browser extensions page.")
                                 .font(.system(size: 11))
                                 .foregroundColor(.secondary)
 
-                            Button("Open Chrome Web Store") {
-                                if let url = URL(string: CWS_URL) {
+                            Button("Download extension") {
+                                if let url = URL(string: EXTENSION_DOWNLOAD_URL) {
                                     NSWorkspace.shared.open(url)
                                 }
                             }
@@ -1153,10 +1157,10 @@ struct BrowserRowView: View {
         configManager.browsers.first { $0.id == browser.id }
     }
 
-    /// Whether this browser has a legacy (non-CWS) manual extension ID
+    /// Whether this browser has a custom unpacked extension ID
     private var hasLegacyExtensionId: Bool {
         guard let extId = currentBrowser?.extensionId, !extId.isEmpty else { return false }
-        return extId != CWS_EXTENSION_ID
+        return extId != FORK_EXTENSION_ID
     }
 
     var body: some View {
@@ -1238,11 +1242,11 @@ struct BrowserRowView: View {
                                         .font(.system(size: 11, weight: .medium))
                                         .foregroundColor(.orange)
                                 }
-                                Text("Install from the Chrome Web Store for automatic updates, then remove the manually loaded version.")
+                                Text("Download the fork extension and load it unpacked. Reload it after replacing its files to update.")
                                     .font(.system(size: 10))
                                     .foregroundColor(.secondary)
-                                Button("Open Chrome Web Store") {
-                                    if let url = URL(string: CWS_URL) {
+                                Button("Download extension") {
+                                    if let url = URL(string: EXTENSION_DOWNLOAD_URL) {
                                         NSWorkspace.shared.open(url)
                                     }
                                 }
@@ -2311,7 +2315,7 @@ func detectParentBrowser() -> (String, pid_t)? {
 }
 
 // Lock file for event tap coordination - only one native host should have the event tap
-let eventTapLockFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".tabswitcher_eventtap.lock")
+let eventTapLockFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".robin_tabswitcher_eventtap.lock")
 
 // Check if we should be the event tap leader (first one to claim the lock)
 func tryBecomeEventTapLeader() -> Bool {
@@ -2377,12 +2381,12 @@ func cleanupEventTapLock() {
 }
 
 // Distributed notification names for IPC between native hosts
-let ctrlTabNotificationName = "com.tabswitcher.ctrlTab"
-let ctrlReleaseNotificationName = "com.tabswitcher.ctrlRelease"
-let leaderResignedNotificationName = "com.tabswitcher.leaderResigned"
-let showConfigNotificationName = "com.tabswitcher.showConfig"
-let copyUrlNotificationName = "com.tabswitcher.copyUrl"
-let shortcutsChangedNotificationName = "com.tabswitcher.shortcutsChanged"
+let ctrlTabNotificationName = "build.robin.tabswitcher.ctrlTab"
+let ctrlReleaseNotificationName = "build.robin.tabswitcher.ctrlRelease"
+let leaderResignedNotificationName = "build.robin.tabswitcher.leaderResigned"
+let showConfigNotificationName = "build.robin.tabswitcher.showConfig"
+let copyUrlNotificationName = "build.robin.tabswitcher.copyUrl"
+let shortcutsChangedNotificationName = "build.robin.tabswitcher.shortcutsChanged"
 
 // Setup listener for distributed notifications (for non-leader hosts)
 func setupNotificationListener() {
@@ -2486,7 +2490,7 @@ func setupNotificationListener() {
     }
 
     // Listen for app update trigger (from notification click)
-    center.addObserver(forName: NSNotification.Name("com.tabswitcher.triggerAppUpdate"), object: nil, queue: .main) { _ in
+    center.addObserver(forName: NSNotification.Name("build.robin.tabswitcher.triggerAppUpdate"), object: nil, queue: .main) { _ in
         debugLog("Received triggerAppUpdate notification")
         if let delegate = NSApp.delegate as? AppDelegate, delegate.launchedDirectly {
             allowConfigUI = true
@@ -2499,7 +2503,7 @@ func setupNotificationListener() {
     }
 
     // Listen for extension update display request (from notification click)
-    center.addObserver(forName: NSNotification.Name("com.tabswitcher.showExtensionUpdate"), object: nil, queue: .main) { _ in
+    center.addObserver(forName: NSNotification.Name("build.robin.tabswitcher.showExtensionUpdate"), object: nil, queue: .main) { _ in
         debugLog("Received showExtensionUpdate notification")
         DispatchQueue.main.async {
             allowConfigUI = true
@@ -2509,7 +2513,7 @@ func setupNotificationListener() {
     }
 
     // Listen for update checker leader resignation
-    center.addObserver(forName: NSNotification.Name("com.tabswitcher.updateCheckerResigned"), object: nil, queue: .main) { _ in
+    center.addObserver(forName: NSNotification.Name("build.robin.tabswitcher.updateCheckerResigned"), object: nil, queue: .main) { _ in
         debugLog("Update checker leader resigned, attempting to take over")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             BackgroundUpdateChecker.shared.tryTakeOverLeadership()

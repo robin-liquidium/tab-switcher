@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Tab Switcher",
+  "name": "Tab Switcher \u2014 Robin",
   "short_name": "TabSwitch",
   "description": "Switch between Chrome tabs like macOS Cmd+Tab. Use Ctrl+Tab with visual preview to cycle through recently used tabs.",
-  "version": "3.7.4",
+  "version": "3.8.0",
   "permissions": [
     "tabs",
     "nativeMessaging",
@@ -52,5 +52,6 @@
       "48": "icon48.png"
     },
     "default_popup": "popup.html"
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqrAnM1pQz30qTVjofuN78/5SOkzAsQ8dfAOUKGFD/5TiVOv3Bc9HacL1qi8Mj96pRUfrDgUx2O4ujhANKP7to1IbCEvS7V9BwjO9z+6NTZm/kb9WAVmVK0Hbj+OGFyx5W4ciVWCvnFjbPzyTw7h8LI2zsg/661Xj+90G7iC0jjh5pUvZ+51pKXEgQVzWMJnq+WDLPpMWAIpzVsMDsnzO5RZLhMhQC8k7SbJzPk0JS3L//zvdWiIA+IOZ+sjaHAzyGqMTVeT13lOZlRTlkKSbr2PcC4eLFole04B7HI0I9x3IPXSwpMqIenTpBm/9/7uh7q/OPqgEHIEPdzDZN2QtRQIDAQAB"
 }

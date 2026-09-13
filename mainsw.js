@@ -5,7 +5,7 @@
 
 // Version checking
 var EXTENSION_VERSION = chrome.runtime.getManifest().version;
-var VERSION_CHECK_URL = "https://tabswitcher.app/version.json";
+var VERSION_CHECK_URL = "https://github.com/robin-liquidium/tab-switcher/releases/latest/download/version.json";
 
 // MRU (Most Recently Used) tab tracking
 var mru = [];
@@ -48,7 +48,7 @@ var log = function(str) {
 }
 
 // Welcome/setup page URL (update this once website is live)
-var SETUP_PAGE_URL = "https://nechemyaspitz.github.io/tab-switcher/setup.html";
+var SETUP_PAGE_URL = "https://github.com/robin-liquidium/tab-switcher#installation";
 
 // Initialize on install/update
 chrome.runtime.onInstalled.addListener((details) => {
@@ -513,7 +513,7 @@ var connectNativeHost = function() {
 	}
 
 	try {
-		nativePort = chrome.runtime.connectNative("com.tabswitcher.native");
+		nativePort = chrome.runtime.connectNative("build.robin.tabswitcher.native");
 		log("Connected to native host");
 
 		nativePort.onMessage.addListener(function(message) {
