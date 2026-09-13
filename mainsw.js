@@ -3,6 +3,9 @@
  * Provides macOS-style Cmd+Tab switching for Chrome tabs
  */
 
+importScripts("auto-close.js");
+var tabAutoClose = createTabAutoClose(chrome, () => slowSwitchOngoing || fastSwitchOngoing || nativeSwitchOngoing);
+
 // Version checking
 var EXTENSION_VERSION = chrome.runtime.getManifest().version;
 var VERSION_CHECK_URL = "https://github.com/robin-liquidium/tab-switcher/releases/latest/download/version.json";
@@ -531,6 +534,7 @@ var connectNativeHost = function() {
 				if (message.shortcuts) {
 					chrome.storage.local.set({ shortcuts: message.shortcuts });
 				}
+				if (message.autoClose) tabAutoClose.setSettings(message.autoClose);
 			} else if (message.action === "pong") {
 				// Ping response - connection is alive
 				log("Received pong - connection alive");

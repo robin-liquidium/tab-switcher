@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET
 from package_app import ROOT, OUT, APP, package
 REPO='robin-liquidium/tab-switcher'
 BASE=f'https://github.com/{REPO}/releases'
-EXTENSION_FILES=['manifest.json','mainsw.js','popup.html','popup.js','icon16.png','icon32.png','icon48.png','icon128.png','LICENSE']
+EXTENSION_FILES=['manifest.json','mainsw.js','auto-close.js','popup.html','popup.js','icon16.png','icon32.png','icon48.png','icon128.png','LICENSE']
 
 def call(*args, input=None):
     return subprocess.run(list(map(str,args)),cwd=ROOT,check=True,text=True,input=input,stdout=subprocess.PIPE).stdout.strip()

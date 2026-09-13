@@ -28,7 +28,8 @@ function harness({ count = 9, focused = true, delay = 0 } = {}) {
       update: async id => activated.push(id),
     },
   };
-  const context = vm.createContext({ chrome, navigator: { userAgent: 'Helium' }, console, setTimeout() {}, setInterval() {}, fetch: async () => ({ json: async () => ({}) }) });
+  const autoCloseSettings = [];
+  const context = vm.createContext({ chrome, importScripts() {}, createTabAutoClose: () => ({ setSettings: value => autoCloseSettings.push(value) }), navigator: { userAgent: 'Helium' }, console, setTimeout() {}, setInterval() {}, fetch: async () => ({ json: async () => ({}) }) });
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname, '../mainsw.js'), 'utf8'), context);
   context.mru = [1, 99, 5, 3, 7, 2, 6, 4, 8, 9];
   const cycle = (direction, maxTabs) => context.queueNativeSwitch(() => context.handleNativeCycle(direction, true, maxTabs));
@@ -38,8 +39,18 @@ function harness({ count = 9, focused = true, delay = 0 } = {}) {
     port.onMessage.listeners.forEach(callback => callback({ action: 'cancel_switch' }));
     return context.nativeSwitchQueue;
   };
-  return { context, sent, activated, calls, windows, tabs, cycle, hover, end, cancel, focus: id => chrome.windows.onFocusChanged.listeners.forEach(callback => callback(id)) };
+  return { context, sent, activated, calls, windows, tabs, cycle, hover, end, cancel, autoCloseSettings,
+    nativeMessage: message => port.onMessage.listeners.forEach(callback => callback(message)),
+    focus: id => chrome.windows.onFocusChanged.listeners.forEach(callback => callback(id)) };
 }
+
+test('registration and settings changes forward auto-close preferences; older helpers do not reset them', () => {
+  const h = harness();
+  h.nativeMessage({ action: 'registered', autoClose: { enabled: true, hours: 24 } });
+  h.nativeMessage({ action: 'shortcuts_changed', autoClose: { enabled: false, hours: 48 } });
+  h.nativeMessage({ action: 'registered', shortcuts: {} });
+  assert.deepEqual(h.autoCloseSettings, [{ enabled: true, hours: 24 }, { enabled: false, hours: 48 }]);
+});
 
 test('first key immediately requests six previews using one metadata query', async () => {
   const h = harness(); await h.cycle(1);

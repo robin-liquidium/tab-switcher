@@ -5,14 +5,13 @@
 [Download macOS app](https://github.com/robin-liquidium/tab-switcher/releases/latest/download/TabSwitcher.dmg) · [Download extension](https://github.com/robin-liquidium/tab-switcher/releases/latest/download/TabSwitcher-extension.zip) · [Releases](https://github.com/robin-liquidium/tab-switcher/releases)
 
 <!-- release:start -->
-### Latest release: 3.8.0
+### Latest release: 3.9.0
 
-- Show Ctrl+Tab previews immediately and select previews by hovering.
-- Choose 2–10 recent tabs (six by default), with cycling that wraps in either direction.
-- Assign or disable the tab-switch and copy-URL shortcuts; Escape cancels recording or a switch.
-- Use softer preview labels and the updated app icon.
-- Keep preview memory bounded with smaller cached images and prompt release of hidden previews.
-- Receive native app updates from this independently maintained fork.
+- Optionally close inactive tabs after 1 hour to 30 days, with 24 hours selected by default.
+- Keep pinned, selected, and audio-playing tabs; give existing tabs a full grace period when cleanup is enabled.
+- Reopen the last 50 auto-closed tabs from the extension popup, or clear the locally stored recovery history.
+- Check for expired tabs every five minutes and after browser startup, with safe handling of tab activity and extension worker restarts.
+- Update both the macOS app and unpacked extension to use tab cleanup. It starts disabled.
 <!-- release:end -->
 
 ## Using the switcher
@@ -22,6 +21,16 @@ Hold **Control** and press **Tab** to show recent tabs. Keep pressing Tab to cyc
 In the app, choose **2–10 recent tabs** (six by default). Both directions wrap. Click a shortcut field to record a shortcut; Escape cancels recording and **×** disables it. Copy URL starts unassigned so it won't override the browser's own shortcut. The extension also provides **Alt+W** for quick switching between two tabs.
 
 Previews are captured when tabs are visible. Reloading the extension clears its thumbnail cache; previously unopened tabs show a placeholder until visited. See [resource measurements](docs/resource-usage.md).
+
+## Tab cleanup
+
+In the macOS app, enable **Tab cleanup → Auto-close inactive tabs** and choose a timeout: 1, 6, 12, 24, or 48 hours, 7 days, or 30 days. It is **off by default**, with 24 hours selected. These controls require both the app and extension from version 3.9.0 or later.
+
+The extension checks every five minutes while the browser is running, catching up after sleep or restart. Enabling or re-enabling gives existing tabs a full timeout. Viewing a tab resets its timer; background refreshes do not. Pinned tabs, the selected tab in every window, and tabs playing audio are kept. Private tabs, browser pages, and local files are excluded; only normal HTTP/HTTPS tabs are auto-closed.
+
+Open the extension popup to **reopen the last 50 auto-closed tabs** or clear that history. The list stores titles and URLs locally in that browser profile. Reopening restores the URL, not unsaved page contents—pin tabs containing unfinished work. The extension keeps working when the macOS app is quit, using its last received settings.
+
+Activity survives extension service-worker suspension. After a full browser restart, the extension uses the browser's restored last-accessed times; tabs without a known timestamp receive a fresh timeout. Reloading the extension does not clear recovery history.
 
 ## Installation
 

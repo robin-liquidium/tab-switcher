@@ -170,6 +170,19 @@
       font-size: 10px;
       color: #52525b;
     }
+
+    .cleanup { margin-top: 20px; border-top: 1px solid #1e1e21; padding-top: 16px; }
+    .cleanup h2 { font-size: 13px; margin-bottom: 8px; }
+    .cleanup p { color: #a1a1aa; font-size: 12px; line-height: 1.5; margin-bottom: 10px; }
+    .cleanup button { cursor: pointer; font: inherit; color: inherit; }
+    #auto-closed-list { list-style: none; max-height: 240px; overflow-y: auto; }
+    .restore-tab { width: 100%; text-align: left; border: 1px solid #2a2a2d; background: #111113; border-radius: 6px; padding: 8px; margin-bottom: 6px; }
+    .restore-tab:hover, .restore-tab:focus-visible { background: #222226; }
+    .restore-tab span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+    .restore-tab small { display: block; color: #a1a1aa; font-size: 10px; margin-top: 4px; }
+    #clear-auto-closed { background: none; border: 0; color: #a1a1aa; text-decoration: underline; font-size: 11px; }
+    .cleanup button:disabled { opacity: 0.5; cursor: default; }
+    #cleanup-error { color: #fca5a5; }
   </style>
 </head>
 <body>
@@ -198,6 +211,16 @@
     <div class="shortcut-label">Copy URL</div>
     <div class="keys" id="copy-url-keys">Unassigned</div>
   </div>
+
+  <section class="cleanup" aria-labelledby="cleanup-heading">
+    <h2 id="cleanup-heading">Tab cleanup</h2>
+    <p id="cleanup-status">Loading settings…</p>
+    <h2>Recently auto-closed</h2>
+    <p id="cleanup-empty">No auto-closed tabs yet.</p>
+    <ul id="auto-closed-list" aria-label="Recently auto-closed tabs"></ul>
+    <button id="clear-auto-closed" hidden>Clear history</button>
+    <p id="cleanup-error" role="alert" hidden></p>
+  </section>
 
   <a href="https://github.com/robin-liquidium/tab-switcher#installation" target="_blank" class="help-link">Setup help →</a>
 

@@ -12,10 +12,16 @@ func roundTrip(_ settings: ShortcutsConfiguration) throws -> ShortcutsConfigurat
 }
 var config = ShortcutsConfiguration.defaults
 assert(config.tabSwitch != nil && config.copyUrl == nil && config.maxRecentTabs == 6)
+assert(!config.autoClose.enabled && config.autoClose.hours == 24)
+config.autoClose.enabled = true
+config.autoClose.hours = 168
 config.copyUrl = ShortcutConfig(keyCode: Int64(kVK_ANSI_C), modifiers: CGEventFlags([.maskCommand, .maskShift]).rawValue)
 config.maxRecentTabs = 8
 var restored = try roundTrip(config)
 assert(restored.copyUrl == config.copyUrl && restored.maxRecentTabs == 8)
+assert(restored.autoClose.enabled && restored.autoClose.hours == 168)
+assert(restored.autoClose.message["enabled"] as? Bool == true)
+assert(restored.autoClose.message["hours"] as? Int == 168)
 config.tabSwitch = nil
 config.copyUrl = nil
 restored = try roundTrip(config)
@@ -25,6 +31,10 @@ assert(tabSwitchKeyCode == -1 && tabSwitchModifiers == 0 && copyUrlShortcut == n
 let legacy = Data(#"{"tabSwitch":{"keyCode":48,"modifiers":262144},"copyUrl":{"keyCode":8,"modifiers":1179648}}"#.utf8)
 restored = try JSONDecoder().decode(ShortcutsConfiguration.self, from: legacy)
 assert(restored.tabSwitch?.keyCode == 48 && restored.copyUrl?.keyCode == 8 && restored.maxRecentTabs == 6)
+assert(!restored.autoClose.enabled && restored.autoClose.hours == 24)
+let invalidTimeout = Data(#"{"autoClose":{"enabled":true,"hours":0}}"#.utf8)
+restored = try JSONDecoder().decode(ShortcutsConfiguration.self, from: invalidTimeout)
+assert(restored.autoClose.enabled && restored.autoClose.hours == 24)
 updateShortcutGlobals(from: .defaults)
 assert(tabSwitchKeyCode == Int64(kVK_Tab) && copyUrlShortcut == nil)
 print("Settings passed: defaults, assigned shortcuts, clearing both shortcuts, persistence, legacy decoding, and reset")

@@ -103,10 +103,19 @@ struct ShortcutConfig: Codable, Equatable {
     }
 }
 
+struct AutoCloseConfiguration: Codable, Equatable {
+    static let hourOptions = [1, 6, 12, 24, 48, 168, 720]
+    var enabled = false
+    var hours = 24
+
+    var message: [String: Any] { ["enabled": enabled, "hours": hours] }
+}
+
 struct ShortcutsConfiguration: Codable {
     var tabSwitch: ShortcutConfig?
     var copyUrl: ShortcutConfig?
     var maxRecentTabs: Int = 6
+    var autoClose = AutoCloseConfiguration()
 
     static let defaults = ShortcutsConfiguration(
         tabSwitch: ShortcutConfig(
@@ -123,6 +132,8 @@ extension ShortcutsConfiguration {
         tabSwitch = try container.decodeIfPresent(ShortcutConfig.self, forKey: .tabSwitch)
         copyUrl = try container.decodeIfPresent(ShortcutConfig.self, forKey: .copyUrl)
         maxRecentTabs = min(10, max(2, try container.decodeIfPresent(Int.self, forKey: .maxRecentTabs) ?? 6))
+        autoClose = try container.decodeIfPresent(AutoCloseConfiguration.self, forKey: .autoClose) ?? AutoCloseConfiguration()
+        if !AutoCloseConfiguration.hourOptions.contains(autoClose.hours) { autoClose.hours = 24 }
     }
 }
 
@@ -1014,7 +1025,8 @@ struct SetupView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
 
                         Button("Reset to defaults") {
-                            configManager.shortcuts = .defaults
+                            configManager.shortcuts.tabSwitch = ShortcutsConfiguration.defaults.tabSwitch
+                            configManager.shortcuts.copyUrl = ShortcutsConfiguration.defaults.copyUrl
                             configManager.saveShortcuts()
                         }
                         .font(.system(size: 11))
@@ -1045,6 +1057,54 @@ struct SetupView: View {
                         .padding(12)
                         .background(Color.secondary.opacity(0.06))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        sectionHeader("Tab cleanup")
+                        VStack(spacing: 12) {
+                            Toggle("Auto-close inactive tabs", isOn: Binding(
+                                get: { configManager.shortcuts.autoClose.enabled },
+                                set: {
+                                    configManager.shortcuts.autoClose.enabled = $0
+                                    configManager.saveShortcuts()
+                                }
+                            ))
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+
+                            if configManager.shortcuts.autoClose.enabled {
+                                Divider()
+                                HStack {
+                                    Text("Close after")
+                                    Spacer()
+                                    Picker("Close after", selection: Binding(
+                                        get: { configManager.shortcuts.autoClose.hours },
+                                        set: {
+                                            configManager.shortcuts.autoClose.hours = $0
+                                            configManager.saveShortcuts()
+                                        }
+                                    )) {
+                                        ForEach(AutoCloseConfiguration.hourOptions, id: \.self) { hours in
+                                            Text(hours < 48 ? "\(hours) hour\(hours == 1 ? "" : "s")" : "\(hours / 24) days")
+                                                .tag(hours)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .frame(width: 110)
+                                }
+                            }
+                        }
+                        .font(.system(size: 13))
+                        .padding(12)
+                        .background(Color.secondary.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                        Text("Keeps pinned, selected, and audio-playing tabs. Existing tabs get a full timeout when enabled. Applies to each connected browser.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text("Reopen the last 50 auto-closed tabs from the extension popup. Unsaved page contents aren’t restored; pin tabs with unfinished work.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
                     }
 
                     // Extension update notice
@@ -2100,7 +2160,8 @@ func handleMessage(_ message: [String: Any]) {
                 "tabSwitch": BrowserConfigManager.shared.shortcuts.tabSwitch?.displayString ?? "",
                 "copyUrl": BrowserConfigManager.shared.shortcuts.copyUrl?.displayString ?? ""
             ]
-            sendMessage(["action": "registered", "bundleId": ownerBrowserBundleId ?? bundleId, "shortcuts": shortcuts])
+            sendMessage(["action": "registered", "bundleId": ownerBrowserBundleId ?? bundleId, "shortcuts": shortcuts,
+                         "autoClose": BrowserConfigManager.shared.shortcuts.autoClose.message])
         }
         
     case "url_copied":
@@ -2486,7 +2547,7 @@ func setupNotificationListener() {
         sendMessage(["action": "shortcuts_changed", "shortcuts": [
             "tabSwitch": config.tabSwitch?.displayString ?? "",
             "copyUrl": config.copyUrl?.displayString ?? ""
-        ]])
+        ], "autoClose": config.autoClose.message])
     }
 
     // Listen for app update trigger (from notification click)

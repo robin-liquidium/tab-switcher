@@ -1,13 +1,12 @@
 {
-  "version": "3.8.0",
-  "build": 3800,
-  "date": "2026-09-13",
+  "version": "3.9.0",
+  "build": 3900,
+  "date": "2026-09-14",
   "changes": [
-    "Show Ctrl+Tab previews immediately and select previews by hovering.",
-    "Choose 2\u201310 recent tabs (six by default), with cycling that wraps in either direction.",
-    "Assign or disable the tab-switch and copy-URL shortcuts; Escape cancels recording or a switch.",
-    "Use softer preview labels and the updated app icon.",
-    "Keep preview memory bounded with smaller cached images and prompt release of hidden previews.",
-    "Receive native app updates from this independently maintained fork."
+    "Optionally close inactive tabs after 1 hour to 30 days, with 24 hours selected by default.",
+    "Keep pinned, selected, and audio-playing tabs; give existing tabs a full grace period when cleanup is enabled.",
+    "Reopen the last 50 auto-closed tabs from the extension popup, or clear the locally stored recovery history.",
+    "Check for expired tabs every five minutes and after browser startup, with safe handling of tab activity and extension worker restarts.",
+    "Update both the macOS app and unpacked extension to use tab cleanup. It starts disabled."
   ]
 }

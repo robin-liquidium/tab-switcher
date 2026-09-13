@@ -3,12 +3,13 @@
   "name": "Tab Switcher \u2014 Robin",
   "short_name": "TabSwitch",
   "description": "Switch between Chrome tabs like macOS Cmd+Tab. Use Ctrl+Tab with visual preview to cycle through recently used tabs.",
-  "version": "3.8.0",
+  "version": "3.9.0",
   "permissions": [
     "tabs",
     "nativeMessaging",
     "activeTab",
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"

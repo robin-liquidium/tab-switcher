@@ -10,6 +10,7 @@ class ReleaseTests(unittest.TestCase):
             target=Path(directory)/'extension.zip';release.extension(target)
             with zipfile.ZipFile(target) as z:
                 self.assertEqual(set(z.namelist()),set(release.EXTENSION_FILES))
+                self.assertIn('auto-close.js',z.namelist())
                 m=json.loads(z.read('manifest.json'))
                 identity=''.join(chr(97+int(c,16)) for c in hashlib.sha256(base64.b64decode(m['key'])).hexdigest()[:32])
                 self.assertEqual(identity,'ipcmhgncockbpbfddohlgeimcjajpbgn')
