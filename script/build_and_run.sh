@@ -48,6 +48,16 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <key>TabSwitcherLocalBuild</key><true/>
 </dict></plist>
 PLIST
+python3 - "$ROOT_DIR/release.json" "$APP_BUNDLE/Contents/Info.plist" <<'PYVERSION'
+import json, plistlib, sys
+metadata = json.load(open(sys.argv[1]))
+with open(sys.argv[2], 'rb') as f:
+    info = plistlib.load(f)
+info['CFBundleShortVersionString'] = metadata['version']
+info['CFBundleVersion'] = str(metadata['build'])
+with open(sys.argv[2], 'wb') as f:
+    plistlib.dump(info, f)
+PYVERSION
 codesign --force --timestamp=none --sign "${SIGNING_IDENTITY:--}" "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"
 # The extension can reconnect while compiling; restart again with the finished bundle.
